@@ -17,9 +17,9 @@ NamFix.sln
 ├── NamFix.Application   Class lib  — business logic + Dapper data access. Depends on Shared.
 ├── NamFix.SharedUi      Razor RCL  — ALL reusable Blazor UI (pages, layout, components, API client,
 │                                     map/geolocation). Depends on Shared.
-├── NamFix.Web           Blazor WASM— thin web host. Depends on SharedUi + Shared.
-├── NamFix.Api           ASP.NET API— Web API backend + hosts the WASM client. Depends on Application,
-│                                     Shared, and Web (for hosting the compiled WASM).
+├── NamFix.Web           Blazor WASM— standalone front-end host. Depends on SharedUi + Shared.
+├── NamFix.Api           ASP.NET API— Web API backend (REST + SignalR) only. Depends on Application,
+│                                     Shared. Does NOT reference or host Web.
 └── NamFix.Mobile        (scaffold) — future .NET MAUI Blazor Hybrid. NOT in the solution yet; see its README.
 ```
 
@@ -27,18 +27,18 @@ NamFix.sln
 
 ```
 NamFix.Api  ──►  NamFix.Application  ──►  NamFix.Shared
-   │  │                                       ▲
-   │  └────────►  NamFix.Web  ──►  NamFix.SharedUi  ──┘
-   │                                  ▲
-   └──────────────────────────────────┘  (Api hosts the WASM build of Web)
+                                             ▲
+        NamFix.Web  ──►  NamFix.SharedUi  ───┘
 ```
 
-`Shared` is the leaf everything points at. UI never references `Application`; it only talks to the
-API over HTTP via `NamFixApiClient`.
+`Shared` is the leaf everything points at. `Api` and `Web` are fully decoupled — they share no
+project reference. UI never references `Application`; it only talks to the API over HTTP via
+`NamFixApiClient`.
 
-> **The API is not split out.** `NamFix.Api` is both the Web API **and** the host that serves the
-> Blazor WebAssembly client (`app.UseBlazorFrameworkFiles()` + `MapFallbackToFile("index.html")`).
-> A standalone API was not separated; if that changes, update this note.
+> **API and client are separate deployables.** `NamFix.Api` is a pure backend (REST + SignalR); it
+> does not host the client. `NamFix.Web` is served on its own (its dev server locally; a static host
+> in production) and reaches the API cross-origin via `ApiBaseUrl` (`wwwroot/appsettings.json`), so
+> the API's `Cors:Origins` allowlist is load-bearing — keep it in sync with where the client runs.
 
 ---
 
@@ -50,7 +50,7 @@ API over HTTP via `NamFixApiClient`.
 | Backend      | ASP.NET Core Web API (controllers), layered API → Application → Data    |
 | Data access  | **Dapper** (no EF). Hand-written SQL in a repository layer.            |
 | Database     | Microsoft SQL Server, with **full-text search** (FREETEXT/CONTAINS)    |
-| Migrations   | **Grate** — see `db/README.md`                                          |
+| Migrations   | **Grate** — see `NamFix.Api/Migrations/README.md`                       |
 | Auth         | Custom token store (Dapper) + **JWT** access/refresh tokens             |
 | Maps         | **Leaflet.js** via JS interop, behind `IMapService`                     |
 | Styling      | Plain responsive CSS (`namfix.css` in the RCL), mobile-first           |
@@ -59,15 +59,15 @@ API over HTTP via `NamFixApiClient`.
 
 ## 3. Database conventions
 
-SQL lives in `db/` and is run by Grate. See `db/README.md` for the run order table and exact command.
+SQL lives in `NamFix.Api/Migrations/` and is run by Grate. See `NamFix.Api/Migrations/README.md` for the run order table and exact command.
 
-- **`db/up/`** — versioned, run-**once** schema. Files are sequentially numbered
+- **`Migrations/up/`** — versioned, run-**once** schema. Files are sequentially numbered
   (`0001_create_users.sql`, …). Tables, indexes, FKs, and the full-text catalog/index live here.
-- **`db/views/`** — `CREATE OR ALTER VIEW`, re-run any time the file changes.
-- **`db/sprocs/`** — `CREATE OR ALTER PROCEDURE`, re-run any time changed (e.g. `usp_ProviderTypeahead`).
-- **`db/permissions/`** — grants, run every time (guarded/idempotent).
-- **`db/seed/`** — reference + sample data, run every time, **idempotent** (`MERGE` / `IF NOT EXISTS`).
-- **`db/runAfterCreateDatabase/`** — one-time setup right after the DB is created.
+- **`Migrations/views/`** — `CREATE OR ALTER VIEW`, re-run any time the file changes.
+- **`Migrations/sprocs/`** — `CREATE OR ALTER PROCEDURE`, re-run any time changed (e.g. `usp_ProviderTypeahead`).
+- **`Migrations/permissions/`** — grants, run every time (guarded/idempotent).
+- **`Migrations/seed/`** — reference + sample data, run every time, **idempotent** (`MERGE` / `IF NOT EXISTS`).
+- **`Migrations/runAfterCreateDatabase/`** — one-time setup right after the DB is created.
 
 **Naming:** PascalCase tables/columns; PK `PK_<Table>`, FK `FK_<Table>_<Ref>`, unique `UX_…`, index `IX_…`.
 Enums are stored as `INT` columns (see `NamFix.Shared.Enums`).
@@ -91,8 +91,9 @@ inflection-tolerant matching; the typeahead sproc uses `CONTAINS` with a prefix 
 - **Token storage is behind `ITokenStore`** — web uses `localStorage` (`LocalStorageTokenStore`),
   MAUI will use SecureStorage. The Blazor auth state is rebuilt from the JWT by
   `NamFixAuthStateProvider`; `AuthHeaderHandler` attaches the bearer token to API calls.
-- Signing key + connection string come from config/env (`NAMFIX_`-prefixed env vars override
-  `appsettings`, e.g. `NAMFIX_Jwt__SigningKey`, `NAMFIX_ConnectionStrings__NamFix`).
+- The signing key may come from config or a `NAMFIX_`-prefixed env var (e.g. `NAMFIX_Jwt__SigningKey`).
+  The **database connection string is read exclusively from `appsettings.json`**
+  (`ConnectionStrings:DefaultConnection`) and cannot be overridden by an environment variable.
 
 ---
 
@@ -153,27 +154,61 @@ Featured/promoted listings are an optional *secondary* stream and are not the pr
 **Prerequisites:** .NET 10 SDK, SQL Server (LocalDB / Express / full), Grate (`dotnet tool install -g grate`).
 
 ```bash
-# 1. Apply schema + seed (see db/README.md for the full --folders command and caveats)
+# 1. Apply schema + seed (see NamFix.Api/Migrations/README.md for the full --folders command and caveats)
 grate --connectionstring="Server=localhost;Database=NamFix;Trusted_Connection=True;TrustServerCertificate=True;" \
-      --sqlfilesdirectory=./db --databasetype=sqlserver \
+      --sqlfilesdirectory=./NamFix.Api/Migrations --databasetype=sqlserver \
       --folders='{"runAfterCreateDatabase":{"type":"Once"},"up":{"type":"Once"},"views":{"type":"AnyTime"},"sprocs":{"type":"AnyTime"},"permissions":{"type":"EveryTime"},"seed":{"type":"EveryTime"}}'
 
-# 2. Run the API (it also serves the Blazor WASM client)
-dotnet run --project NamFix.Api
+# 2. Run the backend API
+dotnet run --project NamFix.Api      # https://localhost:7111
+
+# 3. In a second terminal, run the front-end
+dotnet run --project NamFix.Web      # https://localhost:7213
 ```
 
-Then browse to the API's HTTPS URL. Sample logins (password `Password123!`): `admin@namfix.na`,
+Then browse to the client's HTTPS URL (`https://localhost:7213`). Sample logins (password `Password123!`): `admin@namfix.na`,
 `aqua@namfix.na`, `spark@namfix.na`, `auto@namfix.na`.
 
-**Config:** `NamFix.Api/appsettings.json` holds `ConnectionStrings:NamFix`, the `Jwt` section, and
-`Cors:Origins`. Override any value in any environment with a `NAMFIX_`-prefixed env var
-(double-underscore for nesting), e.g. `NAMFIX_ConnectionStrings__NamFix`, `NAMFIX_Jwt__SigningKey`.
+**Config:** `NamFix.Api/appsettings.json` holds `ConnectionStrings:DefaultConnection`, the `Jwt`
+section, and `Cors:Origins`. The connection string is always taken from this file. Other settings
+(e.g. the JWT signing key) may be overridden with a `NAMFIX_`-prefixed env var (double-underscore for
+nesting), e.g. `NAMFIX_Jwt__SigningKey`.
 
 ---
 
-## 9. Vertical slice implemented
+## 9. Bookings (negotiated jobs) + realtime
+
+A **Booking** is the negotiated job between a client and a provider, and the **only** way money moves:
+a client can never pay an arbitrary amount — payment is locked to a booking's invoice.
+
+- **Lifecycle** (`BookingStatus`): the proposed time bounces back and forth, with the status encoding
+  *whose turn it is to approve* — `PendingProvider` (client proposed, provider must respond) ⇄
+  `PendingClient` (provider proposed, client must respond) → `Scheduled` (time agreed) →
+  `Completed` (provider marked done + set an invoice amount) → `Paid`. Plus `Cancelled` (either party)
+  and `Declined` (provider). The whole state machine + authorization lives in
+  `BookingService` (`NamFix.Application`); the client never re-implements the rules.
+- **Payment**: `BookingService.PayAsync` is the only client payment path in the UI. It validates the
+  booking is `Completed`, then calls `TransactionService.CreateAsync` with the booking's own
+  `InvoiceAmount` (commission/hold-then-release as in §7) and links the resulting `TransactionId`.
+  The provider profile's old free-form "pay any amount" box was replaced by a **Request a booking**
+  form. (`TransactionsController.Create` still exists for admin/testing but is not surfaced.)
+- **Chat + location + invoice file**: each booking has a message thread (`BookingMessages`), an
+  optional client-shared location (text + coords), and a provider-uploaded invoice file stored in
+  the DB (`BookingAttachments`, served via `GET/POST api/bookings/{id}/invoice`).
+- **Notifications**: every booking event writes a `Notifications` row for the *other* party and is
+  pushed live. The nav shows a 🔔 bell with unread count + dropdown (`NotificationsBell`).
+- **Realtime (SignalR)**: `BookingHub` (`/hubs/notifications`, **authenticated** — JWT passed in the
+  query string, see `Program.cs` `OnMessageReceived`) puts each connection in a per-user group.
+  `IBookingRealtimeNotifier` (Shared.Contracts) decouples the service layer from SignalR;
+  `SignalRBookingNotifier` (API) is the implementation. The client `NotificationService` holds the
+  hub connection + notification state and raises `BookingChanged` / `MessagePosted` so open booking
+  views update live. This is separate from the `StatusHub` heartbeat in §Connectivity.
+
+## 10. Vertical slice implemented
 
 Auth (register/login/refresh, JWT) · Provider CRUD (self-managed profile, towns, tags, map pin,
 availability, admin approval) · Full-text + filter + "near me" search · Leaflet map display ·
 Reviews (verified flag) · Transaction with commission calculation + earnings/revenue reporting ·
-WhatsApp deep-link contact. Payment gateway and MAUI app are abstracted/stubbed for later.
+**Bookings: time negotiation, location share, invoice upload, booking-locked payment, in-booking
+chat, and live notifications over SignalR** · Dark/light theme (dark default) · WhatsApp deep-link
+contact. Payment gateway and MAUI app are abstracted/stubbed for later.

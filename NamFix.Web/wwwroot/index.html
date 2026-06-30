@@ -1,11 +1,21 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NamFix — Tradesperson directory for Namibia</title>
     <base href="/" />
+
+    <!-- Apply the persisted theme before anything renders so there's no flash. Defaults to dark. -->
+    <script>
+        (function () {
+            try {
+                var t = localStorage.getItem('namfix.theme');
+                document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+            } catch (e) { /* localStorage unavailable — keep the dark default on <html> */ }
+        })();
+    </script>
     <link rel="preload" id="webassembly" />
 
     <!-- Leaflet (maps) from CDN -->
@@ -35,6 +45,8 @@
         <span class="dismiss">🗙</span>
     </div>
     <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
+    <!-- SharedUi browser helpers (file download, etc.) -->
+    <script src="_content/NamFix.SharedUi/js/namfix.js"></script>
 </body>
 
 </html>

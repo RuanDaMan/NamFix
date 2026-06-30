@@ -1,0 +1,89 @@
+@implements IDisposable
+@inject NotificationService Notifications
+@inject NavigationManager Nav
+
+<div class="nf-bell">
+    <button class="nf-bell-btn" type="button" @onclick="Toggle" aria-label="Notifications">
+        🔔
+        @if (Notifications.UnreadCount > 0)
+        {
+            <span class="nf-bell-badge">@(Notifications.UnreadCount > 9 ? "9+" : Notifications.UnreadCount.ToString())</span>
+        }
+    </button>
+
+    @if (_open)
+    {
+        <div class="nf-bell-panel">
+            <div class="nf-bell-head">
+                <strong>Notifications</strong>
+                @if (Notifications.UnreadCount > 0)
+                {
+                    <button class="nf-link-btn nf-bell-readall" @onclick="MarkAllReadAsync">Mark all read</button>
+                }
+            </div>
+
+            @if (Notifications.Notifications.Count == 0)
+            {
+                <p class="nf-muted nf-bell-empty">You're all caught up.</p>
+            }
+            else
+            {
+                <ul class="nf-bell-list">
+                    @foreach (var n in Notifications.Notifications)
+                    {
+                        <li class="nf-bell-item @(n.IsRead ? "" : "unread")" @key="n.Id" @onclick="() => OpenAsync(n)">
+                            <span class="nf-bell-icon">@Icon(n.Type)</span>
+                            <span class="nf-bell-body">
+                                <span class="nf-bell-msg">@n.Message</span>
+                                <span class="nf-bell-time">@n.CreatedAtUtc.ToLocalTime().ToString("g")</span>
+                            </span>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _open;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            Notifications.NotificationsChanged += OnChanged;
+            await Notifications.EnsureStartedAsync();
+            StateHasChanged();
+        }
+    }
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private void Toggle() => _open = !_open;
+
+    private async Task MarkAllReadAsync() => await Notifications.MarkAllReadAsync();
+
+    private async Task OpenAsync(NotificationDto n)
+    {
+        _open = false;
+        if (!n.IsRead) await Notifications.MarkReadAsync(n.Id);
+        if (n.BookingId is { } bookingId) Nav.NavigateTo($"bookings/{bookingId}");
+    }
+
+    private static string Icon(NotificationType type) => type switch
+    {
+        NotificationType.BookingRequested => "📅",
+        NotificationType.TimeProposed => "🕑",
+        NotificationType.BookingScheduled => "✅",
+        NotificationType.BookingCompleted => "🧾",
+        NotificationType.BookingPaid => "💰",
+        NotificationType.BookingCancelled => "✖️",
+        NotificationType.BookingDeclined => "🚫",
+        NotificationType.NewMessage => "💬",
+        NotificationType.LocationShared => "📍",
+        _ => "🔔"
+    };
+
+    public void Dispose() => Notifications.NotificationsChanged -= OnChanged;
+}

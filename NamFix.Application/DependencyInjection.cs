@@ -14,21 +14,23 @@ namespace NamFix.Application;
 /// </summary>
 public static class DependencyInjection
 {
-    public static IServiceCollection AddNamFixApplication(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddNamFixApplication(this IServiceCollection services, IConfiguration configuration, string connectionString)
     {
         // Bind JWT options from configuration (Jwt section); SigningKey should come from a secret/env var.
         var jwtOptions = new JwtOptions();
         configuration.GetSection("Jwt").Bind(jwtOptions);
         services.AddSingleton(jwtOptions);
 
-        // Data access
-        services.AddSingleton<IDbConnectionFactory, SqlConnectionFactory>();
+        // Data access — connection string is resolved by the host from appsettings.json only.
+        services.AddSingleton<IDbConnectionFactory>(_ => new SqlConnectionFactory(connectionString));
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IProviderRepository, ProviderRepository>();
         services.AddScoped<ITaxonomyRepository, TaxonomyRepository>();
         services.AddScoped<IReviewRepository, ReviewRepository>();
         services.AddScoped<ITransactionRepository, TransactionRepository>();
         services.AddScoped<ICommissionRepository, CommissionRepository>();
+        services.AddScoped<IBookingRepository, BookingRepository>();
+        services.AddScoped<INotificationRepository, NotificationRepository>();
 
         // Security
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
@@ -44,6 +46,7 @@ public static class DependencyInjection
         services.AddScoped<ITaxonomyService, TaxonomyService>();
         services.AddScoped<IReviewService, ReviewService>();
         services.AddScoped<IAdminService, AdminService>();
+        services.AddScoped<IBookingService, BookingService>();
 
         return services;
     }

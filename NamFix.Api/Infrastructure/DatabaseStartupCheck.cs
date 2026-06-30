@@ -25,7 +25,7 @@ public static class DatabaseStartupCheck
             // Throw so Program.cs can log fatal via Serilog and exit non-zero — the app will not start.
             throw new InvalidOperationException(
                 "Cannot start NamFix.Api: the database is not reachable. " +
-                "Check ConnectionStrings:NamFix (or NAMFIX_ConnectionStrings__NamFix) and that the server/DB exists.",
+                "Check ConnectionStrings:DefaultConnection in appsettings.json and that the server/DB exists.",
                 ex);
         }
     }

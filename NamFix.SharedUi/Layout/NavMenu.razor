@@ -1,10 +1,17 @@
 @inject NamFixApiClient Api
 @inject NavigationManager Nav
+@inject ThemeService Theme
+@inject NotificationService Notifications
 
 <nav class="nf-nav">
     <a class="nf-brand" href="">🔧 NamFix</a>
     <div class="nf-nav-links">
         <ConnectionStatus />
+        <button class="nf-theme-toggle" type="button" @onclick="ToggleThemeAsync"
+                title="@(Theme.IsDark ? "Switch to light mode" : "Switch to dark mode")"
+                aria-label="@(Theme.IsDark ? "Switch to light mode" : "Switch to dark mode")">
+            @(Theme.IsDark ? "☀️" : "🌙")
+        </button>
         <a href="">Search</a>
         <AuthorizeView Roles="ServiceProvider">
             <a href="provider/dashboard">My Listing</a>
@@ -14,6 +21,8 @@
         </AuthorizeView>
         <AuthorizeView>
             <Authorized>
+                <a href="bookings">Bookings</a>
+                <NotificationsBell />
                 <span class="nf-user">Hi, @context.User.Identity?.Name</span>
                 <button class="nf-link-btn" @onclick="LogoutAsync">Log out</button>
             </Authorized>
@@ -26,8 +35,25 @@
 </nav>
 
 @code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Sync C# theme state with what the inline script already applied, then render the icon.
+            await Theme.InitializeAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleThemeAsync()
+    {
+        await Theme.ToggleAsync();
+        StateHasChanged();
+    }
+
     private async Task LogoutAsync()
     {
+        await Notifications.StopAsync();
         await Api.LogoutAsync();
         Nav.NavigateTo("");
     }

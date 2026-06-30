@@ -23,11 +23,12 @@ full-text search · **Grate** migrations · JWT auth · **Leaflet.js** maps.
 | `NamFix.Shared`    | DTOs, domain models, enums, abstraction interfaces.                     |
 | `NamFix.Application`| Business logic + Dapper repositories + services + JWT/commission.     |
 | `NamFix.SharedUi`  | All reusable Blazor UI (pages, components, API client, map) — an RCL.   |
-| `NamFix.Web`       | Thin Blazor WASM host.                                                  |
-| `NamFix.Api`       | Web API **and** the host that serves the WASM client.                  |
+| `NamFix.Web`       | Standalone Blazor WASM front-end.                                       |
+| `NamFix.Api`       | Backend Web API (REST + SignalR) only.                                  |
 | `NamFix.Mobile`    | Future MAUI Blazor Hybrid — scaffold/docs only (see its README).        |
 
-The API and WASM client ship together: `NamFix.Api` references `NamFix.Web` and serves it.
+The API and client are **separate deployables**: `NamFix.Api` does not reference or host `NamFix.Web`.
+The client reaches the API cross-origin via `ApiBaseUrl` (`NamFix.Web/wwwroot/appsettings.json`).
 
 ## Prerequisites
 
@@ -41,16 +42,20 @@ The API and WASM client ship together: `NamFix.Api` references `NamFix.Web` and 
 # 1. Build
 dotnet build NamFix.sln
 
-# 2. Create schema + seed data (NOTE: do not pass --transaction; see db/README.md)
+# 2. Create schema + seed data (NOTE: do not pass --transaction; see NamFix.Api/Migrations/README.md)
 grate --connectionstring="Server=localhost;Database=NamFix;Trusted_Connection=True;TrustServerCertificate=True;" \
-      --sqlfilesdirectory=./db --databasetype=sqlserver \
+      --sqlfilesdirectory=./NamFix.Api/Migrations --databasetype=sqlserver \
       --folders='{"runAfterCreateDatabase":{"type":"Once"},"up":{"type":"Once"},"views":{"type":"AnyTime"},"sprocs":{"type":"AnyTime"},"permissions":{"type":"EveryTime"},"seed":{"type":"EveryTime"}}'
 
-# 3. Run (the API also serves the Blazor WASM front-end)
-dotnet run --project NamFix.Api
+# 3. Run the backend API
+dotnet run --project NamFix.Api      # https://localhost:7111
+
+# 4. In a second terminal, run the front-end
+dotnet run --project NamFix.Web      # https://localhost:7213
 ```
 
-Open the API's HTTPS URL in a browser. The OpenAPI document is at `/openapi/v1.json` in Development.
+Open the client's HTTPS URL (`https://localhost:7213`) in a browser. The API's OpenAPI document is at
+`/openapi/v1.json` in Development.
 
 ### Sample logins (password `Password123!`)
 
@@ -68,21 +73,22 @@ leave reviews.
 
 `NamFix.Api/appsettings.json`:
 
-- `ConnectionStrings:NamFix` — SQL Server connection string.
+- `ConnectionStrings:DefaultConnection` — SQL Server connection string. **Always read from this file**
+  (it cannot be overridden by an environment variable).
 - `Jwt:SigningKey` — **change in production** (min 32 chars). Use a secret/env var.
-- `Cors:Origins` — allowed origins when running the WASM client on a different port.
+- `Cors:Origins` — allowed client origins. Required, since the client always runs on a different
+  origin from the API. Keep it in sync with where `NamFix.Web` is served.
 
-Any setting can be overridden with a `NAMFIX_`-prefixed environment variable (double underscore for
-nested keys), e.g.:
+Settings other than the connection string can be overridden with a `NAMFIX_`-prefixed environment
+variable (double underscore for nested keys), e.g.:
 
 ```bash
-NAMFIX_ConnectionStrings__NamFix="Server=...;Database=NamFix;..."
 NAMFIX_Jwt__SigningKey="a-long-random-production-secret"
 ```
 
 ## Database migrations
 
-See **`db/README.md`** for the folder layout, run order, and CI command.
+See **`NamFix.Api/Migrations/README.md`** for the folder layout, run order, and CI command.
 
 ## Key features
 

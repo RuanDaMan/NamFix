@@ -15,9 +15,20 @@ try
 {
     var builder = WebApplication.CreateBuilder(args);
 
-    // Allow the JWT signing key + connection string to come from environment variables in any
-    // environment. e.g. NAMFIX_Jwt__SigningKey, NAMFIX_ConnectionStrings__NamFix.
+    // Allow non-database settings (e.g. the JWT signing key, NAMFIX_Jwt__SigningKey) to come from
+    // environment variables. The database connection string is deliberately NOT taken from the
+    // environment — see below; it is read exclusively from appsettings.json.
     builder.Configuration.AddEnvironmentVariables(prefix: "NAMFIX_");
+
+    // The connection string always comes from appsettings.json, never from environment variables.
+    // Read it from a dedicated appsettings-only configuration so no env var can override it.
+    var appSettingsOnly = new ConfigurationBuilder()
+        .SetBasePath(builder.Environment.ContentRootPath)
+        .AddJsonFile("appsettings.json", optional: false)
+        .Build();
+    var connectionString = appSettingsOnly.GetConnectionString("DefaultConnection")
+        ?? throw new InvalidOperationException(
+            "Connection string 'DefaultConnection' is not configured. Set ConnectionStrings:DefaultConnection in NamFix.Api/appsettings.json.");
 
     // Serilog: console + rolling daily file under NamFix.Api/logs/. Reads optional overrides from config.
     builder.Host.UseSerilog((context, services, configuration) => configuration
@@ -36,7 +47,11 @@ try
     builder.Services.AddProblemDetails();
 
     // Application + data layer (Dapper repositories, services, JWT, payment abstraction).
-    builder.Services.AddNamFixApplication(builder.Configuration);
+    builder.Services.AddNamFixApplication(builder.Configuration, connectionString);
+
+    // Realtime booking pushes go out over SignalR (BookingHub). The Application layer raises these
+    // through IBookingRealtimeNotifier; the host supplies the SignalR-backed implementation.
+    builder.Services.AddSingleton<NamFix.Shared.Contracts.IBookingRealtimeNotifier, SignalRBookingNotifier>();
 
     // JWT bearer authentication using the same options the token service signs with.
     var jwt = new JwtOptions();
@@ -54,6 +69,22 @@ try
                 ValidIssuer = jwt.Issuer,
                 ValidAudience = jwt.Audience,
                 IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey))
+            };
+
+            // SignalR (WebSockets) can't send an Authorization header, so the JS client passes the
+            // access token in the query string. Pull it from there for hub requests.
+            options.Events = new JwtBearerEvents
+            {
+                OnMessageReceived = context =>
+                {
+                    var accessToken = context.Request.Query["access_token"];
+                    if (!string.IsNullOrEmpty(accessToken) &&
+                        context.HttpContext.Request.Path.StartsWithSegments("/hubs"))
+                    {
+                        context.Token = accessToken;
+                    }
+                    return Task.CompletedTask;
+                }
             };
         });
     builder.Services.AddAuthorization();
@@ -80,10 +111,6 @@ try
         app.MapOpenApi();
     }
 
-    // Serve the Blazor WebAssembly client hosted from this API.
-    app.UseBlazorFrameworkFiles();
-    app.UseStaticFiles();
-
     app.UseSerilogRequestLogging();
 
     app.UseHttpsRedirection();
@@ -93,9 +120,7 @@ try
 
     app.MapControllers();
     app.MapHub<StatusHub>("/hubs/status");
-
-    // SPA fallback so client-side routes resolve to the WASM host page.
-    app.MapFallbackToFile("index.html");
+    app.MapHub<BookingHub>("/hubs/notifications");
 
     app.Run();
 }

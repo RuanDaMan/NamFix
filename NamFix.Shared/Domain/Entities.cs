@@ -3,7 +3,7 @@ using NamFix.Shared.Enums;
 namespace NamFix.Shared.Domain;
 
 /// <summary>
-/// Domain models mirror the SQL Server tables defined in db/up. They are plain POCOs so Dapper
+/// Domain models mirror the SQL Server tables defined in NamFix.Api/Migrations/up. They are plain POCOs so Dapper
 /// can map result sets directly. Keep these free of persistence attributes; the repository layer
 /// owns all SQL.
 /// </summary>
@@ -123,4 +123,78 @@ public class CommissionRule
     public Guid? ProviderId { get; set; }
     public decimal Rate { get; set; }
     public bool IsActive { get; set; } = true;
+}
+
+/// <summary>
+/// A negotiated job between a client and a provider. The proposed time is bounced back and forth
+/// (<see cref="Status"/> + <see cref="ProposedByUserId"/> track whose turn it is to approve) until
+/// agreed (<see cref="ConfirmedStartUtc"/>). The provider completes it with an invoice; the client
+/// pays that exact amount, producing the linked <see cref="TransactionId"/>.
+/// <see cref="ProviderUserId"/> is denormalized from the provider's owning user for cheap
+/// authorization and notification targeting.
+/// </summary>
+public class Booking
+{
+    public Guid Id { get; set; }
+    public Guid ProviderId { get; set; }
+    public Guid ProviderUserId { get; set; }
+    public Guid ClientUserId { get; set; }
+    public int? CategoryId { get; set; }
+    public string ServiceDescription { get; set; } = string.Empty;
+    public BookingStatus Status { get; set; }
+
+    /// <summary>The time currently on the table (awaiting the other party's approval).</summary>
+    public DateTime? ProposedStartUtc { get; set; }
+    /// <summary>Who proposed <see cref="ProposedStartUtc"/> — the other party is the one who approves.</summary>
+    public Guid? ProposedByUserId { get; set; }
+    /// <summary>Set once both parties agree on a time.</summary>
+    public DateTime? ConfirmedStartUtc { get; set; }
+
+    public string? LocationText { get; set; }
+    public double? LocationLat { get; set; }
+    public double? LocationLng { get; set; }
+
+    public decimal? InvoiceAmount { get; set; }
+    public string? InvoiceNotes { get; set; }
+    public string Currency { get; set; } = "NAD";
+
+    /// <summary>The platform transaction created when the client pays the invoice.</summary>
+    public Guid? TransactionId { get; set; }
+
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
+}
+
+/// <summary>A chat message within a booking thread, authored by either participant.</summary>
+public class BookingMessage
+{
+    public Guid Id { get; set; }
+    public Guid BookingId { get; set; }
+    public Guid SenderUserId { get; set; }
+    public string Body { get; set; } = string.Empty;
+    public DateTime CreatedAtUtc { get; set; }
+}
+
+/// <summary>An uploaded file attached to a booking — currently the provider's invoice document.</summary>
+public class BookingAttachment
+{
+    public Guid Id { get; set; }
+    public Guid BookingId { get; set; }
+    public Guid UploadedByUserId { get; set; }
+    public string FileName { get; set; } = string.Empty;
+    public string ContentType { get; set; } = "application/octet-stream";
+    public byte[] Content { get; set; } = Array.Empty<byte>();
+    public DateTime CreatedAtUtc { get; set; }
+}
+
+/// <summary>An in-app notification for a single recipient, usually tied to a booking event.</summary>
+public class Notification
+{
+    public Guid Id { get; set; }
+    public Guid UserId { get; set; }
+    public Guid? BookingId { get; set; }
+    public NotificationType Type { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public bool IsRead { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
 }

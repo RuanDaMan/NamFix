@@ -1,0 +1,102 @@
+@page "/bookings"
+@attribute [Authorize]
+@implements IDisposable
+@inject NamFixApiClient Api
+@inject NotificationService Notifications
+@inject NavigationManager Nav
+
+<PageTitle>My bookings — NamFix</PageTitle>
+
+<h1>My bookings</h1>
+
+@if (_loading)
+{
+    <p class="nf-muted">Loading…</p>
+}
+else if (_bookings.Count == 0)
+{
+    <p class="nf-muted">No bookings yet. Find a provider and request a booking to get started.</p>
+    <a class="nf-cta" href="">Find a provider</a>
+}
+else
+{
+    <div class="nf-booking-list">
+        @foreach (var b in _bookings)
+        {
+            <a class="nf-booking-row" href="bookings/@b.Id" @key="b.Id">
+                <div class="nf-booking-row-main">
+                    <strong>@Counterpart(b)</strong>
+                    <span class="nf-muted">@b.ServiceDescription</span>
+                </div>
+                <div class="nf-booking-row-side">
+                    <span class="nf-badge @StatusClass(b.Status)">@StatusLabel(b.Status)</span>
+                    <span class="nf-muted nf-booking-time">@WhenLabel(b)</span>
+                </div>
+            </a>
+        }
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private List<BookingDto> _bookings = new();
+    private bool _loading = true;
+    private Guid _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _userId = await CurrentUserId();
+        Notifications.BookingChanged += OnBookingChanged;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _bookings = await Api.GetMyBookingsAsync();
+        _loading = false;
+        StateHasChanged();
+    }
+
+    private void OnBookingChanged(Guid bookingId) => _ = InvokeAsync(LoadAsync);
+
+    private async Task<Guid> CurrentUserId()
+    {
+        if (AuthState is null) return Guid.Empty;
+        var user = (await AuthState).User;
+        return Guid.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private string Counterpart(BookingDto b) =>
+        b.ProviderUserId == _userId ? b.ClientName : b.ProviderBusinessName;
+
+    private string WhenLabel(BookingDto b)
+    {
+        var when = b.ConfirmedStartUtc ?? b.ProposedStartUtc;
+        return when is { } d ? d.ToLocalTime().ToString("ddd d MMM, HH:mm") : "—";
+    }
+
+    private static string StatusLabel(BookingStatus s) => s switch
+    {
+        BookingStatus.PendingProvider => "Awaiting provider",
+        BookingStatus.PendingClient => "Awaiting client",
+        BookingStatus.Scheduled => "Scheduled",
+        BookingStatus.Completed => "Awaiting payment",
+        BookingStatus.Paid => "Paid",
+        BookingStatus.Cancelled => "Cancelled",
+        BookingStatus.Declined => "Declined",
+        _ => s.ToString()
+    };
+
+    private static string StatusClass(BookingStatus s) => s switch
+    {
+        BookingStatus.Scheduled => "avail-available",
+        BookingStatus.Paid => "avail-available",
+        BookingStatus.Completed => "emergency",
+        BookingStatus.Cancelled or BookingStatus.Declined => "avail-busy",
+        _ => "verified"
+    };
+
+    public void Dispose() => Notifications.BookingChanged -= OnBookingChanged;
+}

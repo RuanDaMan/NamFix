@@ -7,28 +7,20 @@
 #
 # It creates the NamFix database if it doesn't exist, runs the versioned `up/`
 # scripts once, then re-applies views, sprocs, permissions and seed data.
-# SQL lives in the repo's top-level db/ folder (see db/README.md).
+# SQL lives in the Migrations/ folder next to this script (see Migrations/README.md).
 # ---------------------------------------------------------------------------
 $ErrorActionPreference = 'Stop'
 Set-Location -Path $PSScriptRoot
 
-# The SQL files live in ../db relative to this script (NamFix.Api).
-$sqlDir = Resolve-Path (Join-Path $PSScriptRoot '..\db')
+# The SQL files live in ./Migrations relative to this script (NamFix.Api).
+$sqlDir = Resolve-Path (Join-Path $PSScriptRoot 'Migrations')
 
-# Pick a SQL Server to talk to. Honour an explicit connection string if set,
-# otherwise prefer LocalDB when installed and fall back to the local default
-# instance "(local)". This mirrors the logic in run.ps1.
-if ($env:NAMFIX_ConnectionStrings__NamFix) {
-    $connectionString = $env:NAMFIX_ConnectionStrings__NamFix
-} else {
-    $haveLocalDb = [bool](Get-Command sqllocaldb -ErrorAction SilentlyContinue)
-    if ($haveLocalDb) {
-        try { & sqllocaldb start MSSQLLocalDB | Out-Null } catch { }
-        $server = "(localdb)\MSSQLLocalDB"
-    } else {
-        $server = "(local)"
-    }
-    $connectionString = "Server=$server;Database=NamFix;Trusted_Connection=True;TrustServerCertificate=True;"
+# Use the same connection string the app uses: ConnectionStrings:DefaultConnection
+# from NamFix.Api/appsettings.json (single source of truth).
+$appSettings = Get-Content (Join-Path $PSScriptRoot 'appsettings.json') -Raw | ConvertFrom-Json
+$connectionString = $appSettings.ConnectionStrings.DefaultConnection
+if (-not $connectionString) {
+    throw "ConnectionStrings:DefaultConnection not found in appsettings.json."
 }
 
 # Grate is published for the .NET 8 runtime. If that runtime is missing, allow
@@ -45,13 +37,13 @@ Write-Host "  SQL files : $sqlDir"
 Write-Host "  Target    : $($connectionString -replace 'Password=[^;]*', 'Password=***')"
 
 # Folder config uses grate's short form (folderName=runType, ';'-separated).
-# NOTE: the JSON form shown in db/README.md is NOT understood by this grate
+# NOTE: the JSON form shown in Migrations/README.md is NOT understood by this grate
 # version — it parses --folders with a custom ';'/'='/':' syntax instead.
 $folders = "runAfterCreateDatabase=Once;up=Once;views=AnyTime;sprocs=AnyTime;permissions=EveryTime;seed=EveryTime"
 
 # --silent: grate otherwise pauses for an interactive "press Enter" and hangs.
 # Do NOT pass --transaction; the full-text catalog in up/0006 cannot run inside
-# a transaction (see db/README.md).
+# a transaction (see Migrations/README.md).
 grate `
     --connectionstring="$connectionString" `
     --sqlfilesdirectory="$sqlDir" `

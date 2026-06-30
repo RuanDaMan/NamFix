@@ -1,5 +1,6 @@
 @page "/provider/{Id:guid}"
 @inject NamFixApiClient Api
+@inject NavigationManager Nav
 
 <PageTitle>@(_provider?.BusinessName ?? "Provider") — NamFix</PageTitle>
 
@@ -55,19 +56,21 @@ else
 
         <AuthorizeView Roles="Client">
             <section class="nf-pay">
-                <h3>Pay through NamFix</h3>
-                <p class="nf-muted">Paying on-platform secures a verified review and buyer protection.</p>
-                <div class="nf-pay-row">
-                    <input type="number" min="1" step="0.01" placeholder="Amount (NAD)" @bind="_payAmount" />
-                    <button class="nf-cta" @onclick="PayAsync" disabled="@(_payAmount <= 0)">Pay N$@_payAmount</button>
+                <h3>Request a booking</h3>
+                <p class="nf-muted">Request a time, agree the details, and pay securely once the job is done —
+                    payments always go through a booking, never a random amount.</p>
+                <div class="nf-booking-propose">
+                    <label>What do you need done?</label>
+                    <input placeholder="e.g. Fix a leaking kitchen tap" @bind="_bookingDescription" />
+                    <label>Preferred time</label>
+                    <div class="nf-pay-row">
+                        <input type="datetime-local" @bind="_bookingTime" />
+                        <button class="nf-cta" @onclick="RequestBookingAsync"
+                                disabled="@(string.IsNullOrWhiteSpace(_bookingDescription) || _submitting)">
+                            Request booking
+                        </button>
+                    </div>
                 </div>
-                @if (_payResult is not null)
-                {
-                    <p class="nf-success">
-                        Paid N$@_payResult.GrossAmount — NamFix commission N$@_payResult.CommissionAmount
-                        (@($"{_payResult.CommissionRate:P0}")), provider receives N$@_payResult.NetPayoutAmount.
-                    </p>
-                }
             </section>
         </AuthorizeView>
 
@@ -115,8 +118,9 @@ else
     private ProviderDto? _provider;
     private List<ReviewDto> _reviews = new();
     private bool _loading = true;
-    private decimal _payAmount;
-    private TransactionDto? _payResult;
+    private string? _bookingDescription;
+    private DateTime _bookingTime = DateTime.Now.Date.AddDays(1).AddHours(9);
+    private bool _submitting;
     private CreateReviewRequest _newReview = new() { Rating = 5 };
 
     protected override async Task OnParametersSetAsync()
@@ -138,14 +142,18 @@ else
         }
     }
 
-    private async Task PayAsync()
+    private async Task RequestBookingAsync()
     {
-        _payResult = await Api.CreateTransactionAsync(new CreateTransactionRequest
+        if (string.IsNullOrWhiteSpace(_bookingDescription)) return;
+        _submitting = true;
+        var booking = await Api.CreateBookingAsync(new CreateBookingRequest
         {
             ProviderId = Id,
-            GrossAmount = _payAmount,
-            CategoryId = _provider?.PrimaryCategoryId
+            ServiceDescription = _bookingDescription!,
+            RequestedStartUtc = DateTime.SpecifyKind(_bookingTime, DateTimeKind.Local).ToUniversalTime()
         });
+        _submitting = false;
+        if (booking is not null) Nav.NavigateTo($"bookings/{booking.Id}");
     }
 
     private async Task SubmitReviewAsync()

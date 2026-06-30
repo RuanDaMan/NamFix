@@ -1,0 +1,384 @@
+@page "/bookings/{Id:guid}"
+@attribute [Authorize]
+@implements IDisposable
+@inject NamFixApiClient Api
+@inject NotificationService Notifications
+@inject IGeolocationService Geo
+@inject IJSRuntime JS
+
+<PageTitle>Booking — NamFix</PageTitle>
+
+@if (_loading)
+{
+    <p class="nf-muted">Loading…</p>
+}
+else if (_booking is null)
+{
+    <p class="nf-muted">Booking not found.</p>
+}
+else
+{
+    <div class="nf-booking">
+        <div class="nf-profile-head">
+            <div>
+                <h1>@(IsProvider ? _booking.ClientName : _booking.ProviderBusinessName)</h1>
+                <p class="nf-muted">@_booking.ServiceDescription</p>
+            </div>
+            <span class="nf-badge @StatusClass(_booking.Status)">@StatusLabel(_booking.Status)</span>
+        </div>
+
+        @* ---- Scheduling: the back-and-forth time negotiation ---- *@
+        <section class="nf-booking-section">
+            <h3>Schedule</h3>
+            @if (_booking.Status == BookingStatus.Scheduled)
+            {
+                <p class="nf-success">Confirmed for @Local(_booking.ConfirmedStartUtc).</p>
+            }
+            else if (_booking.ProposedStartUtc is not null)
+            {
+                <p>
+                    Proposed time: <strong>@Local(_booking.ProposedStartUtc)</strong>
+                    <span class="nf-muted">(@(_booking.ProposedByUserId == _userId ? "by you" : "by the other party"))</span>
+                </p>
+            }
+
+            @if (MyTurnToApprove)
+            {
+                <p class="nf-muted">It's your turn to respond to the proposed time.</p>
+                <div class="nf-booking-actions">
+                    <button class="nf-cta" @onclick="AcceptAsync">✓ Accept @Local(_booking.ProposedStartUtc)</button>
+                </div>
+            }
+            else if (WaitingOnOther)
+            {
+                <p class="nf-muted">Waiting for the other party to respond to your proposed time.</p>
+            }
+
+            @if (CanNegotiate)
+            {
+                <div class="nf-booking-propose">
+                    <label>@(_booking.Status == BookingStatus.Scheduled ? "Reschedule to" : "Propose a different time")</label>
+                    <div class="nf-pay-row">
+                        <input type="datetime-local" @bind="_proposeTime" />
+                        <button class="nf-link-btn" @onclick="ProposeAsync">Propose</button>
+                    </div>
+                </div>
+            }
+
+            <div class="nf-booking-actions">
+                @if (IsProvider && (_booking.Status is BookingStatus.PendingProvider or BookingStatus.PendingClient))
+                {
+                    <button class="nf-link-btn" @onclick="DeclineAsync">Decline request</button>
+                }
+                @if (CanCancel)
+                {
+                    <button class="nf-link-btn" @onclick="CancelAsync">Cancel booking</button>
+                }
+            </div>
+        </section>
+
+        @* ---- Location (client shares where the job is) ---- *@
+        <section class="nf-booking-section">
+            <h3>Location</h3>
+            @if (!string.IsNullOrWhiteSpace(_booking.LocationText))
+            {
+                <p>📍 @_booking.LocationText</p>
+                @if (_booking.LocationLat is not null && _booking.LocationLng is not null)
+                {
+                    <MapView Center="new GeoPoint(_booking.LocationLat.Value, _booking.LocationLng.Value)"
+                             Zoom="15" Height="220px"
+                             Markers="new[]{ new MapMarker(new GeoPoint(_booking.LocationLat.Value, _booking.LocationLng.Value), _booking.LocationText!) }" />
+                }
+            }
+            else
+            {
+                <p class="nf-muted">No location shared yet.</p>
+            }
+
+            @if (IsClient && IsActive)
+            {
+                <div class="nf-booking-propose">
+                    <input placeholder="Address or directions" @bind="_locationText" />
+                    <div class="nf-booking-actions">
+                        <button class="nf-link-btn" @onclick="UseMyLocationAsync">📍 Use my current location</button>
+                        <button class="nf-cta" @onclick="SaveLocationAsync" disabled="@string.IsNullOrWhiteSpace(_locationText)">Share location</button>
+                    </div>
+                    @if (_locLat is not null)
+                    {
+                        <p class="nf-muted">Pinned: @_locLat?.ToString("0.0000"), @_locLng?.ToString("0.0000")</p>
+                    }
+                </div>
+            }
+        </section>
+
+        @* ---- Invoice & completion ---- *@
+        <section class="nf-booking-section">
+            <h3>Job &amp; invoice</h3>
+
+            @if (_booking.InvoiceAmount is { } amount)
+            {
+                <p><strong>Amount: @_booking.Currency @amount.ToString("0.00")</strong></p>
+                @if (!string.IsNullOrWhiteSpace(_booking.InvoiceNotes))
+                {
+                    <p class="nf-muted">@_booking.InvoiceNotes</p>
+                }
+            }
+
+            @if (_booking.HasInvoiceFile)
+            {
+                <button class="nf-link-btn" @onclick="DownloadInvoiceAsync">🧾 Download invoice file</button>
+            }
+
+            @if (IsProvider && _booking.Status == BookingStatus.Scheduled)
+            {
+                <div class="nf-booking-propose">
+                    <label>Mark done &amp; charge</label>
+                    <div class="nf-pay-row">
+                        <input type="number" min="0.01" step="0.01" placeholder="Amount (NAD)" @bind="_invoiceAmount" />
+                        <input placeholder="Invoice notes (optional)" @bind="_invoiceNotes" />
+                    </div>
+                    <div class="nf-booking-actions">
+                        <label class="nf-link-btn">
+                            📎 @(_invoiceFileName ?? "Attach invoice file")
+                            <InputFile OnChange="OnInvoiceSelected" style="display:none" />
+                        </label>
+                        <button class="nf-cta" @onclick="CompleteAsync" disabled="@(_invoiceAmount <= 0)">Mark complete</button>
+                    </div>
+                </div>
+            }
+            else if (IsProvider && _booking.Status == BookingStatus.Completed && !_booking.HasInvoiceFile)
+            {
+                <label class="nf-link-btn">
+                    📎 @(_invoiceFileName ?? "Upload invoice file")
+                    <InputFile OnChange="OnInvoiceSelected" style="display:none" />
+                </label>
+            }
+
+            @if (IsClient && _booking.Status == BookingStatus.Completed)
+            {
+                <div class="nf-pay">
+                    <p class="nf-muted">Pay the amount the provider invoiced. You can't pay a custom amount.</p>
+                    <button class="nf-cta" @onclick="PayAsync" disabled="@(_booking.InvoiceAmount is null or <= 0)">
+                        Pay @_booking.Currency @(_booking.InvoiceAmount?.ToString("0.00"))
+                    </button>
+                </div>
+            }
+            else if (_booking.Status == BookingStatus.Paid)
+            {
+                <p class="nf-success">Paid through NamFix.</p>
+            }
+        </section>
+
+        @* ---- Chat ---- *@
+        <section class="nf-booking-section">
+            <h3>Messages</h3>
+            <div class="nf-chat">
+                @foreach (var m in _messages)
+                {
+                    <div class="nf-chat-msg @(m.SenderUserId == _userId ? "mine" : "")" @key="m.Id">
+                        <span class="nf-chat-meta">@(m.SenderUserId == _userId ? "You" : m.SenderName) · @m.CreatedAtUtc.ToLocalTime().ToString("g")</span>
+                        <span class="nf-chat-body">@m.Body</span>
+                    </div>
+                }
+                @if (_messages.Count == 0)
+                {
+                    <p class="nf-muted">No messages yet. Say hello 👋</p>
+                }
+            </div>
+            <div class="nf-pay-row nf-chat-input">
+                <input placeholder="Type a message…" @bind="_draft" @bind:event="oninput" @onkeydown="OnChatKeyDown" />
+                <button class="nf-cta" @onclick="SendMessageAsync" disabled="@string.IsNullOrWhiteSpace(_draft)">Send</button>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private BookingDto? _booking;
+    private List<BookingMessageDto> _messages = new();
+    private bool _loading = true;
+    private Guid _userId;
+
+    private DateTime _proposeTime = DateTime.Now.Date.AddDays(1).AddHours(9);
+    private string? _locationText;
+    private double? _locLat;
+    private double? _locLng;
+    private decimal _invoiceAmount;
+    private string? _invoiceNotes;
+    private string? _invoiceFileName;
+    private string _draft = string.Empty;
+
+    private bool IsProvider => _booking is not null && _booking.ProviderUserId == _userId;
+    private bool IsClient => _booking is not null && _booking.ClientUserId == _userId;
+    private bool IsActive => _booking is not null &&
+        _booking.Status is not (BookingStatus.Paid or BookingStatus.Cancelled or BookingStatus.Declined);
+    private bool MyTurnToApprove => _booking is not null &&
+        ((_booking.Status == BookingStatus.PendingProvider && IsProvider) ||
+         (_booking.Status == BookingStatus.PendingClient && IsClient));
+    private bool WaitingOnOther => _booking is not null &&
+        ((_booking.Status == BookingStatus.PendingProvider && IsClient) ||
+         (_booking.Status == BookingStatus.PendingClient && IsProvider));
+    private bool CanNegotiate => _booking is not null &&
+        _booking.Status is BookingStatus.PendingProvider or BookingStatus.PendingClient or BookingStatus.Scheduled;
+    private bool CanCancel => _booking is not null &&
+        _booking.Status is BookingStatus.PendingProvider or BookingStatus.PendingClient or BookingStatus.Scheduled;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _userId = await CurrentUserId();
+        Notifications.BookingChanged += OnBookingChanged;
+        Notifications.MessagePosted += OnMessagePosted;
+    }
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _booking = await Api.GetBookingAsync(Id);
+        _messages = _booking is null ? new() : await Api.GetBookingMessagesAsync(Id);
+        _loading = false;
+        StateHasChanged();
+    }
+
+    private void OnBookingChanged(Guid bookingId)
+    {
+        if (bookingId == Id) _ = InvokeAsync(LoadAsync);
+    }
+
+    private void OnMessagePosted(Guid bookingId, BookingMessageDto message)
+    {
+        if (bookingId != Id) return;
+        _ = InvokeAsync(() =>
+        {
+            if (_messages.All(m => m.Id != message.Id))
+            {
+                _messages.Add(message);
+                StateHasChanged();
+            }
+        });
+    }
+
+    private void Apply(BookingDto? updated)
+    {
+        if (updated is not null) _booking = updated;
+    }
+
+    private async Task AcceptAsync() => Apply(await Api.AcceptBookingAsync(Id));
+    private async Task DeclineAsync() => Apply(await Api.DeclineBookingAsync(Id));
+    private async Task CancelAsync() => Apply(await Api.CancelBookingAsync(Id));
+
+    private async Task ProposeAsync()
+    {
+        var utc = DateTime.SpecifyKind(_proposeTime, DateTimeKind.Local).ToUniversalTime();
+        Apply(await Api.ProposeBookingTimeAsync(Id, utc));
+    }
+
+    private async Task UseMyLocationAsync()
+    {
+        var point = await Geo.GetCurrentLocationAsync();
+        if (point is { } p)
+        {
+            _locLat = p.Latitude;
+            _locLng = p.Longitude;
+            if (string.IsNullOrWhiteSpace(_locationText))
+                _locationText = $"{p.Latitude:0.0000}, {p.Longitude:0.0000}";
+        }
+    }
+
+    private async Task SaveLocationAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_locationText)) return;
+        Apply(await Api.SetBookingLocationAsync(Id, new SetBookingLocationRequest
+        {
+            LocationText = _locationText!,
+            Lat = _locLat,
+            Lng = _locLng
+        }));
+    }
+
+    private async Task CompleteAsync()
+    {
+        if (_invoiceAmount <= 0) return;
+        Apply(await Api.CompleteBookingAsync(Id, new CompleteBookingRequest
+        {
+            InvoiceAmount = _invoiceAmount,
+            InvoiceNotes = _invoiceNotes
+        }));
+    }
+
+    private async Task OnInvoiceSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        _invoiceFileName = file.Name;
+        using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+        ms.Position = 0;
+        if (await Api.UploadBookingInvoiceAsync(Id, ms, file.Name, file.ContentType))
+            await LoadAsync();
+    }
+
+    private async Task DownloadInvoiceAsync()
+    {
+        var dl = await Api.DownloadBookingInvoiceAsync(Id);
+        if (dl is not null)
+            await JS.InvokeVoidAsync("namfix.downloadFile", dl.FileName, dl.ContentType, Convert.ToBase64String(dl.Content));
+    }
+
+    private async Task PayAsync() => Apply(await Api.PayBookingAsync(Id));
+
+    private async Task OnChatKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SendMessageAsync();
+    }
+
+    private async Task SendMessageAsync()
+    {
+        var body = _draft.Trim();
+        if (body.Length == 0) return;
+        _draft = string.Empty;
+        var sent = await Api.SendBookingMessageAsync(Id, body);
+        if (sent is not null && _messages.All(m => m.Id != sent.Id))
+            _messages.Add(sent);
+    }
+
+    private async Task<Guid> CurrentUserId()
+    {
+        if (AuthState is null) return Guid.Empty;
+        var user = (await AuthState).User;
+        return Guid.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+    }
+
+    private static string Local(DateTime? utc) =>
+        utc is { } d ? d.ToLocalTime().ToString("ddd d MMM yyyy, HH:mm") : "—";
+
+    private static string StatusLabel(BookingStatus s) => s switch
+    {
+        BookingStatus.PendingProvider => "Awaiting provider",
+        BookingStatus.PendingClient => "Awaiting client",
+        BookingStatus.Scheduled => "Scheduled",
+        BookingStatus.Completed => "Awaiting payment",
+        BookingStatus.Paid => "Paid",
+        BookingStatus.Cancelled => "Cancelled",
+        BookingStatus.Declined => "Declined",
+        _ => s.ToString()
+    };
+
+    private static string StatusClass(BookingStatus s) => s switch
+    {
+        BookingStatus.Scheduled or BookingStatus.Paid => "avail-available",
+        BookingStatus.Completed => "emergency",
+        BookingStatus.Cancelled or BookingStatus.Declined => "avail-busy",
+        _ => "verified"
+    };
+
+    public void Dispose()
+    {
+        Notifications.BookingChanged -= OnBookingChanged;
+        Notifications.MessagePosted -= OnMessagePosted;
+    }
+}

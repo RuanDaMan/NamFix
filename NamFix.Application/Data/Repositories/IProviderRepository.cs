@@ -203,7 +203,7 @@ public sealed class ProviderRepository : IProviderRepository
 
         // Order: nearest first when geo given, otherwise verified + rating.
         var orderBy = hasGeo
-            ? "ORDER BY CASE WHEN DistanceKm IS NULL THEN 1 ELSE 0 END, DistanceKm, pr.RatingAverage DESC"
+            ? "ORDER BY CASE WHEN pr.Latitude IS NULL OR pr.Longitude IS NULL THEN 1 ELSE 0 END, DistanceKm, pr.RatingAverage DESC"
             : "ORDER BY pr.IsVerified DESC, pr.RatingAverage DESC, pr.RatingCount DESC";
 
         var page = Math.Max(1, r.Page);

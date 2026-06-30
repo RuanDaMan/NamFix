@@ -20,6 +20,9 @@ public static class DependencyInjection
 
         // Central API-error sink (logs full detail, raises the short message to the UI as a toast).
         services.AddScoped<ApiErrorNotifier>();
+
+        // UI theme (dark/light), persisted in localStorage. Host-agnostic (JS interop only).
+        services.AddScoped<ThemeService>();
         // ConnectivityService (SignalR backend heartbeat) is registered by the host, which knows the
         // API base address — see AddNamFixSharedUi callers.
         // NamFixApiClient itself is registered by the host via AddHttpClient<NamFixApiClient>()

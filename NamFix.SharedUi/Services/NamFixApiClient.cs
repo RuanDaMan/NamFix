@@ -103,6 +103,94 @@ public sealed class NamFixApiClient
     public async Task<ProviderEarningsDto?> GetEarningsAsync() =>
         await SendAsync<ProviderEarningsDto>(() => _http.GetAsync("api/transactions/earnings"));
 
+    // ---- Bookings ----
+    public async Task<List<BookingDto>> GetMyBookingsAsync() =>
+        await SendAsync<List<BookingDto>>(() => _http.GetAsync("api/bookings")) ?? new();
+
+    public async Task<BookingDto?> GetBookingAsync(Guid id) =>
+        await SendAsync<BookingDto>(() => _http.GetAsync($"api/bookings/{id}"));
+
+    public async Task<BookingDto?> CreateBookingAsync(CreateBookingRequest request) =>
+        await SendAsync<BookingDto>(() => _http.PostAsJsonAsync("api/bookings", request));
+
+    public async Task<BookingDto?> ProposeBookingTimeAsync(Guid id, DateTime proposedStartUtc) =>
+        await SendAsync<BookingDto>(() => _http.PostAsJsonAsync($"api/bookings/{id}/propose-time",
+            new ProposeTimeRequest { ProposedStartUtc = proposedStartUtc }));
+
+    public async Task<BookingDto?> AcceptBookingAsync(Guid id) =>
+        await SendAsync<BookingDto>(() => _http.PostAsync($"api/bookings/{id}/accept", null));
+
+    public async Task<BookingDto?> DeclineBookingAsync(Guid id) =>
+        await SendAsync<BookingDto>(() => _http.PostAsync($"api/bookings/{id}/decline", null));
+
+    public async Task<BookingDto?> CancelBookingAsync(Guid id) =>
+        await SendAsync<BookingDto>(() => _http.PostAsync($"api/bookings/{id}/cancel", null));
+
+    public async Task<BookingDto?> SetBookingLocationAsync(Guid id, SetBookingLocationRequest request) =>
+        await SendAsync<BookingDto>(() => _http.PostAsJsonAsync($"api/bookings/{id}/location", request));
+
+    public async Task<BookingDto?> CompleteBookingAsync(Guid id, CompleteBookingRequest request) =>
+        await SendAsync<BookingDto>(() => _http.PostAsJsonAsync($"api/bookings/{id}/complete", request));
+
+    public async Task<BookingDto?> PayBookingAsync(Guid id) =>
+        await SendAsync<BookingDto>(() => _http.PostAsync($"api/bookings/{id}/pay", null));
+
+    public async Task<List<BookingMessageDto>> GetBookingMessagesAsync(Guid id) =>
+        await SendAsync<List<BookingMessageDto>>(() => _http.GetAsync($"api/bookings/{id}/messages")) ?? new();
+
+    public async Task<BookingMessageDto?> SendBookingMessageAsync(Guid id, string body) =>
+        await SendAsync<BookingMessageDto>(() => _http.PostAsJsonAsync($"api/bookings/{id}/messages",
+            new SendBookingMessageRequest { Body = body }));
+
+    /// <summary>Uploads the provider's invoice file (multipart) for a booking.</summary>
+    public async Task<bool> UploadBookingInvoiceAsync(Guid id, Stream content, string fileName, string contentType) =>
+        await SendOkAsync(() =>
+        {
+            var form = new MultipartFormDataContent();
+            var fileContent = new StreamContent(content);
+            if (!string.IsNullOrWhiteSpace(contentType) &&
+                System.Net.Http.Headers.MediaTypeHeaderValue.TryParse(contentType, out var mt))
+                fileContent.Headers.ContentType = mt;
+            form.Add(fileContent, "file", fileName);
+            return _http.PostAsync($"api/bookings/{id}/invoice", form);
+        });
+
+    /// <summary>Downloads the booking's invoice file as bytes (for a client-side download trigger).</summary>
+    public async Task<FileDownload?> DownloadBookingInvoiceAsync(Guid id, [CallerMemberName] string operation = "")
+    {
+        try
+        {
+            using var response = await _http.GetAsync($"api/bookings/{id}/invoice");
+            if (!response.IsSuccessStatusCode)
+            {
+                await ReportFailureAsync(response, operation);
+                return null;
+            }
+
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            var name = response.Content.Headers.ContentDisposition?.FileNameStar
+                ?? response.Content.Headers.ContentDisposition?.FileName?.Trim('"')
+                ?? "invoice";
+            var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+            return new FileDownload(name, contentType, bytes);
+        }
+        catch (HttpRequestException ex)
+        {
+            _errors.Report(OfflineMessage, $"{operation}: {ex}");
+            return null;
+        }
+    }
+
+    // ---- Notifications ----
+    public async Task<List<NotificationDto>> GetNotificationsAsync() =>
+        await SendAsync<List<NotificationDto>>(() => _http.GetAsync("api/notifications")) ?? new();
+
+    public async Task<bool> MarkNotificationReadAsync(Guid id) =>
+        await SendOkAsync(() => _http.PostAsync($"api/notifications/{id}/read", null));
+
+    public async Task<bool> MarkAllNotificationsReadAsync() =>
+        await SendOkAsync(() => _http.PostAsync("api/notifications/read-all", null));
+
     // ---- Admin ----
     public async Task<RevenueReportDto?> GetRevenueAsync() =>
         await SendAsync<RevenueReportDto>(() => _http.GetAsync("api/admin/revenue"));
@@ -178,3 +266,6 @@ public sealed class NamFixApiClient
         return $"Request failed ({(int)response.StatusCode} {response.ReasonPhrase}).";
     }
 }
+
+/// <summary>A file fetched from the API, ready to hand to a browser download.</summary>
+public sealed record FileDownload(string FileName, string ContentType, byte[] Content);
