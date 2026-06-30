@@ -1,0 +1,129 @@
+@page "/"
+@inject NamFixApiClient Api
+@inject IGeolocationService Geo
+
+<PageTitle>NamFix — Find a tradesperson</PageTitle>
+
+<section class="nf-hero">
+    <h1>Find trusted tradespeople across Namibia</h1>
+    <p>Plumbers, electricians, mechanics, carpenters &amp; more — in your town.</p>
+
+    <div class="nf-searchbar">
+        <input type="text" placeholder="What do you need? e.g. geyser repair"
+               @bind="_request.Query" @bind:event="oninput" @onkeyup="OnKeyUp" />
+        <button class="nf-cta" @onclick="SearchAsync">Search</button>
+    </div>
+</section>
+
+<section class="nf-filters">
+    <select @bind="_request.CategoryId">
+        <option value="">All categories</option>
+        @foreach (var c in _categories)
+        {
+            <option value="@c.Id">@c.Name</option>
+        }
+    </select>
+
+    <select @bind="_request.TownId">
+        <option value="">All towns</option>
+        @foreach (var t in _towns)
+        {
+            <option value="@t.Id">@t.Name</option>
+        }
+    </select>
+
+    <label class="nf-check"><input type="checkbox" @bind="EmergencyOnly" /> 24/7 Emergency</label>
+    <label class="nf-check"><input type="checkbox" @bind="AvailableNowOnly" /> Available now</label>
+    <button class="nf-link-btn" @onclick="UseMyLocationAsync">📍 Near me</button>
+    <button class="nf-link-btn" @onclick="() => _showMap = !_showMap">@(_showMap ? "Hide map" : "Show map")</button>
+</section>
+
+@if (_loading)
+{
+    <p class="nf-muted">Searching…</p>
+}
+else if (_results is null)
+{
+    <p class="nf-muted">Start typing or pick a filter to find providers.</p>
+}
+else
+{
+    <p class="nf-muted">@_results.TotalCount result(s)@(_nearMe ? " — sorted by distance" : "")</p>
+
+    @if (_showMap && _results.Items.Any(r => r.Latitude is not null))
+    {
+        <MapView Markers="MapMarkers" Center="MapCenter" Zoom="@(_nearMe ? 11 : 6)" Height="360px" />
+    }
+
+    <div class="nf-grid">
+        @foreach (var p in _results.Items)
+        {
+            <ProviderCard Provider="p" />
+        }
+    </div>
+
+    @if (_results.Items.Count == 0)
+    {
+        <p class="nf-muted">No providers matched. Try a broader search.</p>
+    }
+}
+
+@code {
+    private readonly ProviderSearchRequest _request = new() { PageSize = 24 };
+    private List<CategoryDto> _categories = new();
+    private List<TownDto> _towns = new();
+    private PagedResult<ProviderSearchResult>? _results;
+    private bool _loading;
+    private bool _showMap;
+    private bool _nearMe;
+
+    // Checkbox filters map to nullable bools (null == "don't filter").
+    private bool EmergencyOnly { get => _request.EmergencyOnly ?? false; set => _request.EmergencyOnly = value ? true : null; }
+    private bool AvailableNowOnly { get => _request.AvailableNowOnly ?? false; set => _request.AvailableNowOnly = value ? true : null; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _categories = await Api.GetCategoriesAsync();
+        _towns = await Api.GetTownsAsync();
+    }
+
+    private async Task OnKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SearchAsync();
+    }
+
+    private async Task SearchAsync()
+    {
+        _loading = true;
+        _results = await Api.SearchAsync(_request);
+        _loading = false;
+    }
+
+    private async Task UseMyLocationAsync()
+    {
+        var loc = await Geo.GetCurrentLocationAsync();
+        if (loc is { } point)
+        {
+            _request.NearLatitude = point.Latitude;
+            _request.NearLongitude = point.Longitude;
+            _nearMe = true;
+            _showMap = true;
+            await SearchAsync();
+        }
+    }
+
+    private IEnumerable<MapMarker> MapMarkers =>
+        _results?.Items
+            .Where(r => r.Latitude is not null && r.Longitude is not null)
+            .Select(r => new MapMarker(
+                new GeoPoint(r.Latitude!.Value, r.Longitude!.Value),
+                r.BusinessName,
+                r.PrimaryCategoryName,
+                $"provider/{r.Id}"))
+        ?? Array.Empty<MapMarker>();
+
+    private GeoPoint MapCenter =>
+        _request.NearLatitude is { } lat && _request.NearLongitude is { } lng
+            ? new GeoPoint(lat, lng)
+            : new GeoPoint(-22.56, 17.08);
+}

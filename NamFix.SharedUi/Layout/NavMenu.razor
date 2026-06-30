@@ -1,0 +1,34 @@
+@inject NamFixApiClient Api
+@inject NavigationManager Nav
+
+<nav class="nf-nav">
+    <a class="nf-brand" href="">🔧 NamFix</a>
+    <div class="nf-nav-links">
+        <ConnectionStatus />
+        <a href="">Search</a>
+        <AuthorizeView Roles="ServiceProvider">
+            <a href="provider/dashboard">My Listing</a>
+        </AuthorizeView>
+        <AuthorizeView Roles="Admin">
+            <a href="admin">Admin</a>
+        </AuthorizeView>
+        <AuthorizeView>
+            <Authorized>
+                <span class="nf-user">Hi, @context.User.Identity?.Name</span>
+                <button class="nf-link-btn" @onclick="LogoutAsync">Log out</button>
+            </Authorized>
+            <NotAuthorized>
+                <a href="login">Log in</a>
+                <a class="nf-cta" href="register">Sign up</a>
+            </NotAuthorized>
+        </AuthorizeView>
+    </div>
+</nav>
+
+@code {
+    private async Task LogoutAsync()
+    {
+        await Api.LogoutAsync();
+        Nav.NavigateTo("");
+    }
+}

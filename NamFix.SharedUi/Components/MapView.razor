@@ -1,0 +1,32 @@
+@implements IAsyncDisposable
+@inject IMapService MapService
+
+<div id="@_elementId" class="nf-map" style="height:@Height"></div>
+
+@code {
+    private readonly string _elementId = $"map-{Guid.NewGuid():N}";
+    private bool _rendered;
+
+    /// <summary>Markers to plot. Re-rendered whenever the collection reference changes.</summary>
+    [Parameter] public IEnumerable<MapMarker> Markers { get; set; } = Array.Empty<MapMarker>();
+    [Parameter] public GeoPoint Center { get; set; } = new(-22.56, 17.08); // Windhoek
+    [Parameter] public int Zoom { get; set; } = 6;
+    [Parameter] public string Height { get; set; } = "400px";
+
+    /// <summary>When set, clicking the map reports the chosen point (used to pin a location).</summary>
+    [Parameter] public EventCallback<GeoPoint> OnPinned { get; set; }
+    [Parameter] public bool PinMode { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await MapService.RenderAsync(_elementId, Center, Zoom, Markers);
+
+        if (firstRender && PinMode)
+            await MapService.EnablePinModeAsync(_elementId,
+                async point => await OnPinned.InvokeAsync(point));
+
+        _rendered = true;
+    }
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}

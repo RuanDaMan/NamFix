@@ -1,0 +1,52 @@
+@page "/register"
+@inject NamFixApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>Sign up — NamFix</PageTitle>
+
+<div class="nf-form-card">
+    <h2>Create your account</h2>
+    <EditForm Model="_model" OnValidSubmit="SubmitAsync">
+        <DataAnnotationsValidator />
+
+        <label>I am a…</label>
+        <div class="nf-role-toggle">
+            <button type="button" class="@RoleClass(UserRole.Client)" @onclick="() => _model.Role = UserRole.Client">Looking for help</button>
+            <button type="button" class="@RoleClass(UserRole.ServiceProvider)" @onclick="() => _model.Role = UserRole.ServiceProvider">A tradesperson</button>
+        </div>
+
+        <label>Full name</label>
+        <InputText @bind-Value="_model.FullName" />
+        <label>Email</label>
+        <InputText @bind-Value="_model.Email" type="email" />
+        <label>Phone (optional)</label>
+        <InputText @bind-Value="_model.PhoneNumber" />
+        <label>Password</label>
+        <InputText @bind-Value="_model.Password" type="password" />
+
+        @if (_error is not null)
+        {
+            <p class="nf-error">@_error</p>
+        }
+        <button class="nf-cta" type="submit" disabled="@_busy">@(_busy ? "…" : "Sign up")</button>
+    </EditForm>
+    <p class="nf-muted">Already registered? <a href="login">Log in</a></p>
+</div>
+
+@code {
+    private RegisterRequest _model = new();
+    private string? _error;
+    private bool _busy;
+
+    private string RoleClass(UserRole role) => _model.Role == role ? "nf-role on" : "nf-role";
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        _error = null;
+        _error = await Api.RegisterAsync(_model);
+        _busy = false;
+        if (_error is null)
+            Nav.NavigateTo(_model.Role == UserRole.ServiceProvider ? "provider/dashboard" : "");
+    }
+}

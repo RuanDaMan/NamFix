@@ -1,0 +1,55 @@
+@page "/admin"
+@attribute [Authorize(Roles = "Admin")]
+@inject NamFixApiClient Api
+
+<PageTitle>Admin — NamFix</PageTitle>
+
+<h1>Admin dashboard</h1>
+
+<section class="nf-admin-block">
+    <h2>Platform commission</h2>
+    <p class="nf-muted">The percentage NamFix takes from each transaction (platform-wide default).</p>
+    <div class="nf-pay-row">
+        <input type="number" min="0" max="100" step="0.5" @bind="_commissionPercent" /> %
+        <button class="nf-cta" @onclick="SaveCommissionAsync">Save rate</button>
+        @if (_commissionSaved)
+        {
+            <span class="nf-success">Saved ✓</span>
+        }
+    </div>
+</section>
+
+<section class="nf-admin-block">
+    <h2>Revenue (last 30 days)</h2>
+    @if (_revenue is null)
+    {
+        <p class="nf-muted">Loading…</p>
+    }
+    else
+    {
+        <div class="nf-stat-grid">
+            <div class="nf-stat"><span>Gross processed</span><strong>N$@_revenue.TotalGross</strong></div>
+            <div class="nf-stat"><span>Commission earned</span><strong>N$@_revenue.TotalCommission</strong></div>
+            <div class="nf-stat"><span>Transactions</span><strong>@_revenue.TransactionCount</strong></div>
+        </div>
+
+        <h3>By category</h3>
+        <RevenueTable Rows="_revenue.ByCategory" />
+
+        <h3>By town</h3>
+        <RevenueTable Rows="_revenue.ByTown" />
+    }
+</section>
+
+@code {
+    private RevenueReportDto? _revenue;
+    private decimal _commissionPercent = 10;
+    private bool _commissionSaved;
+
+    protected override async Task OnInitializedAsync() => _revenue = await Api.GetRevenueAsync();
+
+    private async Task SaveCommissionAsync()
+    {
+        _commissionSaved = await Api.SetPlatformCommissionAsync(_commissionPercent / 100m);
+    }
+}

@@ -1,0 +1,19 @@
+<span class="nf-stars" title="@(Value?.ToString("0.0") ?? "No ratings") (@Count reviews)">
+    @for (var i = 1; i <= 5; i++)
+    {
+        <span class="@(i <= Math.Round(Value ?? 0) ? "nf-star on" : "nf-star")">★</span>
+    }
+    @if (Count > 0)
+    {
+        <span class="nf-rating-count">@Value?.ToString("0.0") (@Count)</span>
+    }
+    else
+    {
+        <span class="nf-rating-count">New</span>
+    }
+</span>
+
+@code {
+    [Parameter] public decimal? Value { get; set; }
+    [Parameter] public int Count { get; set; }
+}

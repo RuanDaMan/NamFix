@@ -1,0 +1,28 @@
+@if (Rows.Count == 0)
+{
+    <p class="nf-muted">No data for this period.</p>
+}
+else
+{
+    <table class="nf-table">
+        <thead>
+            <tr><th>@(Label)</th><th>Gross</th><th>Commission</th><th>Count</th></tr>
+        </thead>
+        <tbody>
+            @foreach (var row in Rows)
+            {
+                <tr>
+                    <td>@row.Label</td>
+                    <td>N$@row.Gross</td>
+                    <td>N$@row.Commission</td>
+                    <td>@row.Count</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [Parameter, EditorRequired] public List<RevenueBreakdownRow> Rows { get; set; } = new();
+    [Parameter] public string Label { get; set; } = "Segment";
+}

@@ -1,0 +1,160 @@
+@page "/provider/{Id:guid}"
+@inject NamFixApiClient Api
+
+<PageTitle>@(_provider?.BusinessName ?? "Provider") — NamFix</PageTitle>
+
+@if (_loading)
+{
+    <p class="nf-muted">Loading…</p>
+}
+else if (_provider is null)
+{
+    <p class="nf-muted">Provider not found.</p>
+}
+else
+{
+    <div class="nf-profile">
+        <div class="nf-profile-head">
+            <div>
+                <h1>@_provider.BusinessName
+                    @if (_provider.IsVerified)
+                    {
+                        <span class="nf-badge verified">✓ Verified</span>
+                    }
+                </h1>
+                <p class="nf-muted">@_provider.PrimaryCategoryName · 📍 @_provider.PrimaryTownName</p>
+                <RatingStars Value="_provider.RatingAverage" Count="_provider.RatingCount" />
+            </div>
+            <div class="nf-profile-actions">
+                @if (!string.IsNullOrWhiteSpace(_provider.OwnerPhoneNumber))
+                {
+                    <a class="nf-cta whatsapp" href="@WhatsAppLink" target="_blank" rel="noopener">💬 Chat on WhatsApp</a>
+                    <a class="nf-link-btn" href="tel:@_provider.OwnerPhoneNumber">📞 Call</a>
+                }
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_provider.Description))
+        {
+            <p class="nf-desc">@_provider.Description</p>
+        }
+
+        <div class="nf-tags">
+            @foreach (var tag in _provider.Tags)
+            {
+                <span class="nf-tag">@tag</span>
+            }
+        </div>
+
+        @if (_provider.Latitude is not null && _provider.Longitude is not null)
+        {
+            <MapView Center="new GeoPoint(_provider.Latitude.Value, _provider.Longitude.Value)"
+                     Zoom="14" Height="280px"
+                     Markers="new[]{ new MapMarker(new GeoPoint(_provider.Latitude.Value, _provider.Longitude.Value), _provider.BusinessName) }" />
+        }
+
+        <AuthorizeView Roles="Client">
+            <section class="nf-pay">
+                <h3>Pay through NamFix</h3>
+                <p class="nf-muted">Paying on-platform secures a verified review and buyer protection.</p>
+                <div class="nf-pay-row">
+                    <input type="number" min="1" step="0.01" placeholder="Amount (NAD)" @bind="_payAmount" />
+                    <button class="nf-cta" @onclick="PayAsync" disabled="@(_payAmount <= 0)">Pay N$@_payAmount</button>
+                </div>
+                @if (_payResult is not null)
+                {
+                    <p class="nf-success">
+                        Paid N$@_payResult.GrossAmount — NamFix commission N$@_payResult.CommissionAmount
+                        (@($"{_payResult.CommissionRate:P0}")), provider receives N$@_payResult.NetPayoutAmount.
+                    </p>
+                }
+            </section>
+        </AuthorizeView>
+
+        <section class="nf-reviews">
+            <h3>Reviews (@_reviews.Count)</h3>
+
+            <AuthorizeView Roles="Client">
+                <div class="nf-review-form">
+                    <select @bind="_newReview.Rating">
+                        @for (var i = 5; i >= 1; i--)
+                        {
+                            <option value="@i">@i ★</option>
+                        }
+                    </select>
+                    <input placeholder="Share your experience" @bind="_newReview.Comment" />
+                    <button class="nf-link-btn" @onclick="SubmitReviewAsync">Post</button>
+                </div>
+            </AuthorizeView>
+
+            @foreach (var r in _reviews)
+            {
+                <div class="nf-review">
+                    <div class="nf-review-head">
+                        <strong>@r.ClientName</strong>
+                        <RatingStars Value="r.Rating" Count="0" />
+                        @if (r.IsVerified)
+                        {
+                            <span class="nf-badge verified">Verified</span>
+                        }
+                    </div>
+                    <p>@r.Comment</p>
+                </div>
+            }
+            @if (_reviews.Count == 0)
+            {
+                <p class="nf-muted">No reviews yet.</p>
+            }
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private ProviderDto? _provider;
+    private List<ReviewDto> _reviews = new();
+    private bool _loading = true;
+    private decimal _payAmount;
+    private TransactionDto? _payResult;
+    private CreateReviewRequest _newReview = new() { Rating = 5 };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _provider = await Api.GetProviderAsync(Id);
+        _reviews = await Api.GetReviewsAsync(Id);
+        _newReview = new CreateReviewRequest { ProviderId = Id, Rating = 5 };
+        _loading = false;
+    }
+
+    private string WhatsAppLink
+    {
+        get
+        {
+            var phone = new string((_provider?.OwnerPhoneNumber ?? "").Where(char.IsDigit).ToArray());
+            var msg = Uri.EscapeDataString($"Hi {_provider?.BusinessName}, I found you on NamFix and would like a quote.");
+            return $"https://wa.me/{phone}?text={msg}";
+        }
+    }
+
+    private async Task PayAsync()
+    {
+        _payResult = await Api.CreateTransactionAsync(new CreateTransactionRequest
+        {
+            ProviderId = Id,
+            GrossAmount = _payAmount,
+            CategoryId = _provider?.PrimaryCategoryId
+        });
+    }
+
+    private async Task SubmitReviewAsync()
+    {
+        if (await Api.AddReviewAsync(_newReview))
+        {
+            _reviews = await Api.GetReviewsAsync(Id);
+            _provider = await Api.GetProviderAsync(Id);
+            _newReview = new CreateReviewRequest { ProviderId = Id, Rating = 5 };
+        }
+    }
+}

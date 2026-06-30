@@ -1,0 +1,47 @@
+@inject NavigationManager Nav
+
+<div class="nf-card" @onclick="@(() => Nav.NavigateTo($"provider/{Provider.Id}"))">
+    <div class="nf-card-head">
+        <h3>@Provider.BusinessName</h3>
+        @if (Provider.IsVerified)
+        {
+            <span class="nf-badge verified" title="Admin-verified">✓ Verified</span>
+        }
+    </div>
+    <div class="nf-card-meta">
+        <span class="nf-cat">@Provider.PrimaryCategoryName</span>
+        @if (!string.IsNullOrEmpty(Provider.PrimaryTownName))
+        {
+            <span class="nf-town">📍 @Provider.PrimaryTownName</span>
+        }
+        @if (Provider.DistanceKm is { } km)
+        {
+            <span class="nf-dist">@km.ToString("0.0") km away</span>
+        }
+    </div>
+    <RatingStars Value="Provider.RatingAverage" Count="Provider.RatingCount" />
+    <div class="nf-tags">
+        @foreach (var tag in Provider.Tags.Take(5))
+        {
+            <span class="nf-tag">@tag</span>
+        }
+    </div>
+    <div class="nf-card-flags">
+        @if (Provider.IsEmergencyCallout)
+        {
+            <span class="nf-badge emergency">⚡ 24/7 Emergency</span>
+        }
+        <span class="nf-badge avail-@Provider.Availability.ToString().ToLower()">@AvailabilityLabel</span>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ProviderSearchResult Provider { get; set; } = default!;
+
+    private string AvailabilityLabel => Provider.Availability switch
+    {
+        AvailabilityStatus.Available => "Available now",
+        AvailabilityStatus.Busy => "Busy",
+        _ => "Offline"
+    };
+}

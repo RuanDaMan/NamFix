@@ -1,0 +1,16 @@
+@implements IDisposable
+@inject ConnectivityService Connectivity
+
+<span class="nf-conn @(Connectivity.IsOnline ? "online" : "offline")"
+      title="@(Connectivity.IsOnline ? "Connected to NamFix server" : "Offline — trying to reconnect")">
+    <span class="nf-conn-dot"></span>
+    <span class="nf-conn-label">@(Connectivity.IsOnline ? "Online" : "Offline")</span>
+</span>
+
+@code {
+    protected override void OnInitialized() => Connectivity.StateChanged += OnStateChangedAsync;
+
+    private Task OnStateChangedAsync() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Connectivity.StateChanged -= OnStateChangedAsync;
+}

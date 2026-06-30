@@ -1,0 +1,118 @@
+Project: NamFix — Tradesperson Directory & Booking Platform (Namibia)
+
+Build a production-ready web application that connects Namibian homeowners and businesses with skilled tradespeople (plumbers, electricians, mechanics, carpenters, etc.) across all major towns. Architect it so a mobile app can share UI later with minimal rework.
+
+============================================================
+SOLUTION STRUCTURE
+============================================================
+- NamFix.Application — application/business logic layer (services, use-cases, validation, orchestration). Depends on NamFix.Shared.
+- NamFix.Shared — DTOs, domain models, enums, contracts/interfaces shared across all layers.
+- NamFix.SharedUi — Razor Class Library holding all reusable Blazor UI components, layouts, and view logic. Consumed by NamFix.Web now and NamFix.Mobile later. Keep platform-specific concerns (geolocation, secure storage, file pickers, push) behind interfaces in NamFix.Shared, with concrete implementations injected per host.
+- NamFix.Web — Blazor WebAssembly host (the web app) + the ASP.NET Core Web API backend (or split the API into NamFix.Api if preferred; state which in the README).
+- NamFix.Mobile — .NET MAUI Blazor Hybrid project. LEAVE UNIMPLEMENTED FOR NOW but scaffold the reference structure so it can later consume NamFix.SharedUi and NamFix.Shared with minimal rework. Document the intended wiring.
+
+============================================================
+TECH STACK
+============================================================
+- Frontend: Blazor WebAssembly (.NET 8/9). All UI components live in NamFix.SharedUi so the future MAUI Hybrid app reuses them. Mobile-responsive CSS from day one.
+- Backend: ASP.NET Core Web API (C#), layered API -> Application -> Data, using DTOs from NamFix.Shared.
+- Database: Microsoft SQL Server. Data access on the application/data layer uses Dapper (NO Entity Framework). Write hand-tuned SQL, map to models via Dapper, keep queries in a dedicated repository layer. Use SQL Server full-text search (FULLTEXT indexes + CONTAINS/FREETEXT) for fast, typo-tolerant provider search.
+- Migrations: Grate (https://github.com/erikbra/grate). Install and configure Grate for schema migrations. Organize SQL into a structured folder so up-scripts and views are tracked separately and run in the correct order.
+- Auth: ASP.NET Core Identity (with a Dapper-backed user store, or a custom token-based scheme) + JWT (access + refresh). Keep token storage behind an interface so MAUI secure storage plugs in later.
+- Maps: Leaflet.js (free, no API key, offline-tile friendly) via JS interop, behind an IMapService abstraction so the provider can be swapped.
+
+============================================================
+MIGRATIONS FOLDER LAYOUT (GRATE CONVENTION)
+============================================================
+Create a top-level db/ folder structured for Grate's run order:
+
+db/
+  up/                       -- versioned, run-once schema changes (tables, indexes, FK, fulltext catalogs)
+  views/                    -- run-every-time view definitions (idempotent CREATE OR ALTER VIEW)
+  sprocs/                   -- run-every-time stored procedures (if any)
+  runAfterCreateDatabase/
+  permissions/              -- run-every-time grants
+  seed/                     -- seed/reference data (towns, categories, starter tags)
+
+Each up-script is sequentially named (e.g. 0001_create_providers.sql). Views and sprocs use CREATE OR ALTER so Grate can re-run them safely. Include a README note on the exact Grate command to run migrations locally and in CI.
+
+============================================================
+USER ROLES
+============================================================
+1. Admin — approve/suspend providers, manage town & category taxonomies, moderate reviews, manage featured-listing slots, configure the platform transaction commission rate, view platform analytics and revenue reporting.
+2. Service Provider — create/edit profile, list trades & service tags, set service towns, pin location on map, upload portfolio photos & certifications, manage availability, respond to enquiries, buy featured placement.
+3. Client — search/browse, filter by town/category/tags/rating, view profiles & reviews, contact providers (WhatsApp deep-link + optional in-app message), rate/review, save favourites.
+
+============================================================
+CORE FEATURES
+============================================================
+- Easy signup & onboarding: low-friction signup with role chosen at registration; phone-number-first option (SMS/WhatsApp OTP) suited to the local market — start with email if simpler, add OTP later. Minimal multi-step provider onboarding.
+- Search: SQL Server full-text search across provider name, trade, tags, and description; tag, town, category, and rating filters; "near me" distance sorting; fast typeahead/autocomplete.
+- Tags & taxonomy: providers self-tag with multiple service tags; admin manages the master tag list; free-text tags queued for admin approval to keep the index clean.
+- Towns: seed all major Namibian towns (Windhoek, Swakopmund, Walvis Bay, Oshakati, Ongwediva, Rundu, Otjiwarongo, Rehoboth, Katima Mulilo, Gobabis, Tsumeb, Grootfontein, Keetmanshoop, Mariental, and more), admin-extensible. Providers pick one or more service towns.
+- Maps & pinpoint location: providers drop a precise pin; clients view providers on a map and use device geolocation for "near me"; reverse-geocode pins to the nearest town.
+- Reviews & ratings: clients rate completed jobs; verified-review flag when contact/transaction happened through the platform.
+
+============================================================
+MONETIZATION — TRANSACTION COMMISSION MODEL
+============================================================
+Revenue is earned as a percentage commission on transactions processed through the platform (NOT subscription tiers).
+
+- The platform takes a configurable percentage cut of each completed transaction between client and provider.
+- The commission rate is configurable by Admin (single platform-wide default, with the ability to override per category or per provider if needed).
+- Build a payment/transaction flow so payments route through the platform: client pays -> platform deducts commission -> provider is paid out the remainder.
+- Track every transaction: gross amount, commission rate applied, commission amount, net payout to provider, status (pending / held / paid out / refunded), and timestamps.
+- Provide Admin revenue reporting: total commission earned over period, by town, by category, by provider.
+- Provide providers a clear earnings view: gross, commission deducted, net payout, payout history.
+- Payment abstraction (IPaymentService) so a local provider (DPO / PayToday / bank EFT) and a payout/escrow mechanism wire in later. Design for a "hold then release/payout" pattern so commission can be reliably captured.
+- Featured/promoted listings (paid placement per town/category) may remain as an OPTIONAL secondary revenue stream, but the primary model is transaction commission.
+
+============================================================
+COOL FEATURES WORTH ADDING
+============================================================
+- WhatsApp deep-link contact — one-tap "Chat on WhatsApp" with prefilled message.
+- Offline-first browsing — PWA service worker caches recent searches/profiles for patchy connections.
+- Verified badge — admin-verified providers (ID/business reg/qualification) get a trust badge.
+- Request-a-quote / job posting — clients post a job; matching providers get notified and respond.
+- Provider availability toggle — "available now / busy."
+- Click-to-call & contact tracking — measure which listings generate leads.
+- Save & compare favourites.
+- Multi-language UI — English + Afrikaans at minimum via .resx; Oshiwambo later.
+- Emergency / 24-7 filter — flag after-hours callout providers (high-value for plumbing/electrical).
+- Analytics dashboards — providers see views/contacts/search appearances/earnings; admins see platform-wide stats and revenue.
+- Lightweight in-app messaging — optional; keeps conversations on-platform for verified reviews. Heaviest to maintain — can defer behind WhatsApp deep-links at launch.
+
+Note: because the revenue model is transaction commission, keeping the transaction (and ideally the conversation) on-platform is strategically important — anything that pushes the deal off-platform (e.g. raw WhatsApp hand-off before payment) risks bypassing commission. Balance ease-of-contact against capturing the transaction.
+
+============================================================
+DOCUMENTATION REQUIREMENT
+============================================================
+Create a top-level CONTEXT.md (and reference it from README.md) that serves as the canonical context file for all future AI coding prompts. It must describe:
+- the solution structure and each project's responsibility
+- the dependency direction between projects
+- the chosen stack (Blazor WASM, Dapper, SQL Server, Grate, Leaflet)
+- the database conventions (where up-scripts vs views vs seed live, naming rules, full-text setup)
+- the auth approach
+- the UI-sharing strategy for the future MAUI app
+- the abstractions (IMapService, IPaymentService, geolocation/secure-storage interfaces)
+- the monetization/transaction-commission flow and the transaction data model
+- how to run the app and migrations locally
+
+Keep it current as the architecture evolves so any AI assistant (or new developer) can be brought up to speed by reading this one file.
+
+============================================================
+NON-FUNCTIONAL REQUIREMENTS
+============================================================
+- Mobile-responsive layout from day one, even before the MAUI app exists.
+- Clean separation of concerns; dependency injection throughout; config via appsettings + environment variables.
+- Data-light: lazy-load images, paginate results, compress payloads.
+- Repository layer keeps all Dapper SQL isolated and testable.
+- Seed data via Grate: towns, categories, starter tags, sample providers.
+
+============================================================
+DELIVERABLES
+============================================================
+- The solution scaffolded per the structure above (NamFix.Mobile referenced but unimplemented).
+- db/ folder with Grate-ready scripts and initial migrations.
+- Working vertical slice: auth, provider CRUD, full-text search, map display, and a transaction record with commission calculation.
+- CONTEXT.md + README.md with local setup and Grate migration commands.

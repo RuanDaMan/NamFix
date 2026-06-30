@@ -1,0 +1,44 @@
+@page "/login"
+@inject NamFixApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>Log in — NamFix</PageTitle>
+
+<div class="nf-form-card">
+    <h2>Log in</h2>
+    <EditForm Model="_model" OnValidSubmit="SubmitAsync">
+        <DataAnnotationsValidator />
+        <label>Email</label>
+        <InputText @bind-Value="_model.Email" type="email" />
+        <label>Password</label>
+        <InputText @bind-Value="_model.Password" type="password" />
+
+        @if (_error is not null)
+        {
+            <p class="nf-error">@_error</p>
+        }
+        <button class="nf-cta" type="submit" disabled="@_busy">@(_busy ? "…" : "Log in")</button>
+    </EditForm>
+    <p class="nf-muted">No account? <a href="register">Sign up</a></p>
+</div>
+
+@code {
+    private LoginModel _model = new();
+    private string? _error;
+    private bool _busy;
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        _error = null;
+        _error = await Api.LoginAsync(new LoginRequest { Email = _model.Email, Password = _model.Password });
+        _busy = false;
+        if (_error is null) Nav.NavigateTo("");
+    }
+
+    private sealed class LoginModel
+    {
+        public string Email { get; set; } = "";
+        public string Password { get; set; } = "";
+    }
+}

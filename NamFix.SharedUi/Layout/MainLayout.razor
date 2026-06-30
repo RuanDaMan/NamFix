@@ -1,0 +1,82 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject ConnectivityService Connectivity
+@inject ApiErrorNotifier Errors
+
+<div class="nf-app">
+    <NavMenu />
+    <main class="nf-main">
+        @Body
+    </main>
+    <footer class="nf-footer">
+        <span>NamFix — find trusted tradespeople across Namibia</span>
+    </footer>
+</div>
+
+@* API error toasts — the short message for any failed request is shown here. *@
+<div class="nf-toasts">
+    @foreach (var toast in _toasts)
+    {
+        <div class="nf-toast" @key="toast.Id">
+            <span class="nf-toast-msg">@toast.Message</span>
+            <button class="nf-toast-x" @onclick="() => Dismiss(toast)" aria-label="Dismiss">✕</button>
+        </div>
+    }
+</div>
+
+@* Offline overlay — shown while the backend is unreachable, auto-clears the moment it returns. *@
+@if (!Connectivity.IsOnline)
+{
+    <div class="nf-offline">
+        <div class="nf-offline-card">
+            <div class="nf-offline-spinner"></div>
+            <h2>You're offline</h2>
+            <p>We can't reach the NamFix server right now. You'll be reconnected automatically as soon as it's back.</p>
+        </div>
+    </div>
+}
+
+@code {
+    private readonly List<Toast> _toasts = new();
+
+    protected override void OnInitialized()
+    {
+        Errors.ErrorReported += OnErrorReported;
+        Connectivity.StateChanged += OnConnectivityChangedAsync;
+        // Fire-and-forget: the connect/retry loop runs for the app's lifetime and never returns while offline.
+        _ = Connectivity.StartAsync();
+    }
+
+    private Task OnConnectivityChangedAsync() => InvokeAsync(StateHasChanged);
+
+    private void OnErrorReported(string message)
+    {
+        var toast = new Toast(message);
+        _toasts.Add(toast);
+        _ = InvokeAsync(StateHasChanged);
+        _ = AutoDismissAsync(toast);
+    }
+
+    private async Task AutoDismissAsync(Toast toast)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(6));
+        Dismiss(toast);
+    }
+
+    private void Dismiss(Toast toast)
+    {
+        if (_toasts.Remove(toast))
+            _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Errors.ErrorReported -= OnErrorReported;
+        Connectivity.StateChanged -= OnConnectivityChangedAsync;
+    }
+
+    private sealed record Toast(string Message)
+    {
+        public Guid Id { get; } = Guid.NewGuid();
+    }
+}
