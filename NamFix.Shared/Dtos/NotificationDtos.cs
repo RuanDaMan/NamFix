@@ -6,7 +6,8 @@ namespace NamFix.Shared.Dtos;
 public record NotificationDto
 {
     public Guid Id { get; init; }
-    public Guid? BookingId { get; init; }
+    public Guid? JobRequestId { get; init; }
+    public Guid? TicketId { get; init; }
     public NotificationType Type { get; init; }
     public string Message { get; init; } = string.Empty;
     public bool IsRead { get; init; }

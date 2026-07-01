@@ -1,0 +1,104 @@
+@page "/open-jobs"
+@attribute [Authorize(Roles = "ServiceProvider")]
+@implements IDisposable
+@inject NamFixApiClient Api
+@inject NotificationService Notifications
+
+<PageTitle>Job board — NamFix</PageTitle>
+
+<h1>Job board</h1>
+<p class="nf-muted">Open jobs from clients that match your category and town. Respond with a quote to win the work.</p>
+
+@if (_loading)
+{
+    <p class="nf-muted">Loading…</p>
+}
+else if (_jobs.Count == 0)
+{
+    <p class="nf-muted">No open jobs right now. We'll notify you when a matching job is posted.</p>
+}
+else
+{
+    <div class="nf-booking-list">
+        @foreach (var j in _jobs)
+        {
+            <div class="nf-booking-row" @key="j.Id">
+                <div class="nf-booking-row-main">
+                    <strong>
+                        @if (j.Urgency == JobUrgency.Urgent)
+                        {
+                            <span class="nf-badge emergency">Urgent</span>
+                        }
+                        @j.ClientName
+                    </strong>
+                    <span class="nf-muted">@j.ServiceDescription</span>
+                    <span class="nf-muted">@(j.CategoryName ?? "Any category") · @(j.TownName ?? "Any town")</span>
+                </div>
+                <div class="nf-booking-row-side">
+                    @if (_quoting == j.Id)
+                    {
+                        <div class="nf-booking-propose">
+                            <input type="number" min="0.01" step="0.01" placeholder="Quote (NAD)" @bind="_amount" />
+                            <input placeholder="Note (optional)" @bind="_note" />
+                            <div class="nf-booking-actions">
+                                <button class="nf-cta" @onclick="() => SubmitAsync(j.Id)" disabled="@(_amount <= 0)">Send quote</button>
+                                <button class="nf-link-btn" @onclick="() => SubmitInterestAsync(j.Id)">I'm interested</button>
+                                <button class="nf-link-btn" @onclick="() => _quoting = null">Cancel</button>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <button class="nf-cta" @onclick="() => StartQuote(j.Id)">Respond</button>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<JobRequestDto> _jobs = new();
+    private bool _loading = true;
+    private Guid? _quoting;
+    private decimal _amount;
+    private string? _note;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Notifications.BookingChanged += OnChanged;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _jobs = await Api.GetOpenJobsAsync();
+        _loading = false;
+        StateHasChanged();
+    }
+
+    private void OnChanged(Guid jobId) => _ = InvokeAsync(LoadAsync);
+
+    private void StartQuote(Guid jobId)
+    {
+        _quoting = jobId;
+        _amount = 0;
+        _note = null;
+    }
+
+    private async Task SubmitAsync(Guid jobId)
+    {
+        if (_amount <= 0) return;
+        var ok = await Api.SubmitQuoteAsync(jobId, new SubmitQuoteRequest { Amount = _amount, Note = _note });
+        if (ok is not null) { _quoting = null; await LoadAsync(); }
+    }
+
+    private async Task SubmitInterestAsync(Guid jobId)
+    {
+        var ok = await Api.SubmitQuoteAsync(jobId, new SubmitQuoteRequest { InterestOnly = true, Note = _note });
+        if (ok is not null) { _quoting = null; await LoadAsync(); }
+    }
+
+    public void Dispose() => Notifications.BookingChanged -= OnChanged;
+}

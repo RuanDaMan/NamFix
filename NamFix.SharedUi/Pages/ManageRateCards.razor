@@ -1,0 +1,143 @@
+@page "/provider/rate-cards"
+@attribute [Authorize(Roles = "ServiceProvider")]
+@inject NamFixApiClient Api
+
+<PageTitle>Rate card — NamFix</PageTitle>
+
+<h1>Rate card</h1>
+<p class="nf-muted">Publish a price list. It shows on your profile and prefills quotes. Prices are a starting point, not a commitment.</p>
+
+@if (_loading)
+{
+    <p class="nf-muted">Loading…</p>
+}
+else
+{
+    <div class="nf-booking-list">
+        @foreach (var c in _cards)
+        {
+            <div class="nf-booking-row" @key="c.Id">
+                <div class="nf-booking-row-main">
+                    <strong>@c.Title @(c.IsActive ? "" : "(hidden)")</strong>
+                    <span class="nf-muted">@c.Description</span>
+                    <span class="nf-muted">@(c.CategoryName ?? "Any category")</span>
+                </div>
+                <div class="nf-booking-row-side">
+                    <strong>NAD @c.Price.ToString("0.00") / @UnitLabel(c.Unit)</strong>
+                    <div class="nf-booking-actions">
+                        <button class="nf-link-btn" @onclick="() => Edit(c)">Edit</button>
+                        <button class="nf-link-btn" @onclick="() => DeleteAsync(c.Id)">Delete</button>
+                    </div>
+                </div>
+            </div>
+        }
+        @if (_cards.Count == 0)
+        {
+            <p class="nf-muted">No rates yet. Add your first below.</p>
+        }
+    </div>
+
+    <EditForm Model="_edit" OnValidSubmit="SaveAsync" class="nf-form">
+        <DataAnnotationsValidator />
+        <h3>@(_edit.Id is null ? "Add a rate" : "Edit rate")</h3>
+
+        <label>Title</label>
+        <InputText @bind-Value="_edit.Title" placeholder="e.g. Callout & inspection" />
+        <ValidationMessage For="() => _edit.Title" />
+
+        <label>Description (optional)</label>
+        <InputText @bind-Value="_edit.Description" />
+
+        <div class="nf-form-row">
+            <div>
+                <label>Price (NAD)</label>
+                <InputNumber @bind-Value="_edit.Price" />
+            </div>
+            <div>
+                <label>Unit</label>
+                <InputSelect @bind-Value="_edit.Unit">
+                    @foreach (var u in Enum.GetValues<RateUnit>())
+                    {
+                        <option value="@u">@UnitLabel(u)</option>
+                    }
+                </InputSelect>
+            </div>
+            <div>
+                <label>Category</label>
+                <InputSelect @bind-Value="_edit.CategoryId">
+                    <option value="">Any</option>
+                    @foreach (var cat in _categories)
+                    {
+                        <option value="@cat.Id">@cat.Name</option>
+                    }
+                </InputSelect>
+            </div>
+        </div>
+
+        <label class="nf-check">
+            <InputCheckbox @bind-Value="_edit.IsActive" /> Visible on my profile
+        </label>
+
+        <div class="nf-booking-actions">
+            <button class="nf-cta" type="submit">@(_edit.Id is null ? "Add rate" : "Save changes")</button>
+            @if (_edit.Id is not null)
+            {
+                <button class="nf-link-btn" type="button" @onclick="ResetForm">Cancel edit</button>
+            }
+        </div>
+    </EditForm>
+}
+
+@code {
+    private List<RateCardDto> _cards = new();
+    private List<CategoryDto> _categories = new();
+    private SaveRateCardRequest _edit = new();
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _categories = await Api.GetCategoriesAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _cards = await Api.GetMyRateCardsAsync();
+        _loading = false;
+    }
+
+    private void Edit(RateCardDto c) => _edit = new SaveRateCardRequest
+    {
+        Id = c.Id,
+        CategoryId = c.CategoryId,
+        Title = c.Title,
+        Description = c.Description,
+        Price = c.Price,
+        Unit = c.Unit,
+        IsActive = c.IsActive,
+        SortOrder = c.SortOrder
+    };
+
+    private void ResetForm() => _edit = new SaveRateCardRequest();
+
+    private async Task SaveAsync()
+    {
+        var saved = await Api.SaveRateCardAsync(_edit);
+        if (saved is not null) { ResetForm(); await LoadAsync(); }
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        if (await Api.DeleteRateCardAsync(id)) await LoadAsync();
+    }
+
+    private static string UnitLabel(RateUnit u) => u switch
+    {
+        RateUnit.PerJob => "job",
+        RateUnit.PerHour => "hour",
+        RateUnit.Callout => "callout",
+        RateUnit.PerUnit => "unit",
+        _ => u.ToString()
+    };
+}

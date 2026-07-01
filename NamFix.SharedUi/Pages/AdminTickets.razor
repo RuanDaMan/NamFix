@@ -1,0 +1,117 @@
+@page "/admin/tickets"
+@attribute [Authorize(Roles = "Admin")]
+@implements IDisposable
+@inject NamFixApiClient Api
+@inject NotificationService Notifications
+
+<PageTitle>Support tickets — NamFix</PageTitle>
+
+<h1>Support tickets</h1>
+
+<section class="nf-admin-block">
+    <div class="nf-ticket-filters">
+        <div>
+            <label class="nf-field-label">Status</label>
+            <select class="nf-input" @bind="_statusFilter" @bind:after="LoadAsync">
+                <option value="">All</option>
+                @foreach (var s in Enum.GetValues<TicketStatus>())
+                {
+                    <option value="@((int)s)">@StatusLabel(s)</option>
+                }
+            </select>
+        </div>
+        <div>
+            <label class="nf-field-label">Priority</label>
+            <select class="nf-input" @bind="_priorityFilter" @bind:after="LoadAsync">
+                <option value="">All</option>
+                @foreach (var p in Enum.GetValues<SupportPriority>())
+                {
+                    <option value="@((int)p)">@p</option>
+                }
+            </select>
+        </div>
+        <div class="nf-ticket-counts">
+            <span class="nf-badge emergency">@_tickets.Count(t => t.Status == TicketStatus.Open) open</span>
+            <span class="nf-badge verified">@_tickets.Count(t => t.Status == TicketStatus.AwaitingUser) awaiting</span>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="nf-muted">Loading…</p>
+    }
+    else if (_tickets.Count == 0)
+    {
+        <p class="nf-muted">No tickets match this filter.</p>
+    }
+    else
+    {
+        <div class="nf-booking-list">
+            @foreach (var t in _tickets)
+            {
+                <a class="nf-booking-row" href="support/@t.Id" @key="t.Id">
+                    <div class="nf-booking-row-main">
+                        <strong>@t.Subject</strong>
+                        <span class="nf-muted">@t.RequesterName · @t.Category · @t.MessageCount msg@(t.MessageCount == 1 ? "" : "s")@(t.HasAttachments ? " · 📎" : "")</span>
+                    </div>
+                    <div class="nf-booking-row-side">
+                        <span class="nf-badge @PriorityClass(t.Priority)">@t.Priority</span>
+                        <span class="nf-badge @StatusClass(t.Status)">@StatusLabel(t.Status)</span>
+                        <span class="nf-muted nf-booking-time">@t.LastMessageAtUtc.ToLocalTime().ToString("ddd d MMM, HH:mm")</span>
+                    </div>
+                </a>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    private List<SupportTicketDto> _tickets = new();
+    private bool _loading = true;
+    private string _statusFilter = "";
+    private string _priorityFilter = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Notifications.TicketChanged += OnTicketChanged;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        TicketStatus? status = int.TryParse(_statusFilter, out var s) ? (TicketStatus)s : null;
+        SupportPriority? priority = int.TryParse(_priorityFilter, out var p) ? (SupportPriority)p : null;
+        _tickets = await Api.GetAllTicketsAsync(status, priority);
+        _loading = false;
+        StateHasChanged();
+    }
+
+    private void OnTicketChanged(Guid ticketId) => _ = InvokeAsync(LoadAsync);
+
+    private static string StatusLabel(TicketStatus s) => s switch
+    {
+        TicketStatus.Open => "Open",
+        TicketStatus.AwaitingUser => "Awaiting user",
+        TicketStatus.Resolved => "Resolved",
+        TicketStatus.Closed => "Closed",
+        _ => s.ToString()
+    };
+
+    private static string StatusClass(TicketStatus s) => s switch
+    {
+        TicketStatus.Open => "emergency",
+        TicketStatus.AwaitingUser => "verified",
+        TicketStatus.Resolved or TicketStatus.Closed => "avail-available",
+        _ => "verified"
+    };
+
+    private static string PriorityClass(SupportPriority p) => p switch
+    {
+        SupportPriority.Urgent or SupportPriority.High => "avail-busy",
+        SupportPriority.Low => "avail-available",
+        _ => "verified"
+    };
+
+    public void Dispose() => Notifications.TicketChanged -= OnTicketChanged;
+}

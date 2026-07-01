@@ -11,7 +11,14 @@ namespace NamFix.Api.Controllers;
 public sealed class AdminController : ApiControllerBase
 {
     private readonly IAdminService _admin;
-    public AdminController(IAdminService admin) => _admin = admin;
+    private readonly IUserAdminService _users;
+    private readonly IPlatformSettingsService _settings;
+    public AdminController(IAdminService admin, IUserAdminService users, IPlatformSettingsService settings)
+    {
+        _admin = admin;
+        _users = users;
+        _settings = settings;
+    }
 
     [HttpPost("providers/{id:guid}/status")]
     public async Task<IActionResult> SetProviderStatus(Guid id, [FromBody] ProviderStatus status)
@@ -54,6 +61,58 @@ public sealed class AdminController : ApiControllerBase
     public async Task<IActionResult> ModerateTag(int id, [FromBody] bool approve)
     {
         await _admin.ModerateTagAsync(id, approve);
+        return NoContent();
+    }
+
+    // ---- User management (with live presence / last-seen) ----
+
+    [HttpGet("users")]
+    public async Task<ActionResult<List<AdminUserDto>>> Users() =>
+        Ok(await _users.ListUsersAsync());
+
+    [HttpPost("users/{id:guid}/active")]
+    public async Task<IActionResult> SetUserActive(Guid id, [FromBody] bool isActive)
+    {
+        await _users.SetActiveAsync(id, isActive);
+        return NoContent();
+    }
+
+    [HttpPost("users/{id:guid}/role")]
+    public async Task<IActionResult> SetUserRole(Guid id, UpdateUserRoleRequest request)
+    {
+        await _users.SetRoleAsync(id, request.Role);
+        return NoContent();
+    }
+
+    [HttpPost("users/{id:guid}/password")]
+    public async Task<IActionResult> ResetUserPassword(Guid id, ResetPasswordRequest request)
+    {
+        try
+        {
+            await _users.ResetPasswordAsync(id, request.NewPassword);
+            return NoContent();
+        }
+        catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
+    }
+
+    [HttpGet("users/{id:guid}/bookings")]
+    public async Task<ActionResult<List<JobRequestDto>>> UserBookings(Guid id) =>
+        Ok(await _users.GetUserBookingsAsync(id));
+
+    [HttpGet("users/{id:guid}/tickets")]
+    public async Task<ActionResult<List<SupportTicketDto>>> UserTickets(Guid id) =>
+        Ok(await _users.GetUserTicketsAsync(id));
+
+    // ---- Platform settings (e.g. cancellation window) ----
+
+    [HttpGet("settings")]
+    public async Task<ActionResult<PlatformSettingsDto>> GetSettings() =>
+        Ok(await _settings.GetAsync());
+
+    [HttpPut("settings")]
+    public async Task<IActionResult> UpdateSettings(PlatformSettingsDto request)
+    {
+        await _settings.UpdateAsync(request);
         return NoContent();
     }
 }

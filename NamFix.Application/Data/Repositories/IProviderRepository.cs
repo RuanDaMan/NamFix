@@ -18,6 +18,27 @@ public interface IProviderRepository
     Task SetVerifiedAsync(Guid providerId, bool verified);
     Task RecalculateRatingAsync(Guid providerId);
     Task<PagedResult<ProviderSearchResult>> SearchAsync(ProviderSearchRequest request);
+
+    /// <summary>Denormalized starting price = min active rate-card price. Maintained on rate-card save.</summary>
+    Task SetStartingPriceAsync(Guid providerId, decimal? price);
+    /// <summary>Denormalized average response time (minutes). Maintained when a provider quotes.</summary>
+    Task SetAvgResponseMinutesAsync(Guid providerId, int? minutes);
+    Task IncrementNoShowAsync(Guid providerId);
+    Task IncrementLateCancellationAsync(Guid providerId);
+
+    /// <summary>Active providers matching a broadcast job (category + town + available now), optionally
+    /// emergency-flagged and within a radius. Returns their id + owning user for fan-out.</summary>
+    Task<List<ProviderMatch>> FindMatchingProvidersAsync(
+        int? categoryId, int? townId, bool emergencyOnly, double? lat, double? lng, double radiusKm);
+}
+
+/// <summary>A provider matched for a broadcast job, with just what fan-out needs.</summary>
+public sealed record ProviderMatch
+{
+    public Guid ProviderId { get; init; }
+    public Guid ProviderUserId { get; init; }
+    public int? AvgResponseMinutes { get; init; }
+    public double? DistanceKm { get; init; }
 }
 
 public sealed class ProviderRepository : IProviderRepository
@@ -72,14 +93,15 @@ public sealed class ProviderRepository : IProviderRepository
                 BusinessName = @BusinessName, Description = @Description, PrimaryCategoryId = @PrimaryCategoryId,
                 Availability = @Availability, IsEmergencyCallout = @IsEmergencyCallout,
                 Latitude = @Latitude, Longitude = @Longitude, PrimaryTownId = @PrimaryTownId,
+                YearsExperience = @YearsExperience,
                 SearchKeywords = @SearchKeywords, UpdatedAtUtc = SYSUTCDATETIME()
             WHEN NOT MATCHED THEN INSERT
                 (Id, UserId, BusinessName, Description, PrimaryCategoryId, Status, Availability,
-                 IsVerified, IsEmergencyCallout, Latitude, Longitude, PrimaryTownId,
+                 IsVerified, IsEmergencyCallout, Latitude, Longitude, PrimaryTownId, YearsExperience,
                  RatingAverage, RatingCount, SearchKeywords, CreatedAtUtc, UpdatedAtUtc)
             VALUES
                 (@Id, @UserId, @BusinessName, @Description, @PrimaryCategoryId, @Status, @Availability,
-                 @IsVerified, @IsEmergencyCallout, @Latitude, @Longitude, @PrimaryTownId,
+                 @IsVerified, @IsEmergencyCallout, @Latitude, @Longitude, @PrimaryTownId, @YearsExperience,
                  NULL, 0, @SearchKeywords, SYSUTCDATETIME(), SYSUTCDATETIME());
             """,
             new
@@ -87,7 +109,7 @@ public sealed class ProviderRepository : IProviderRepository
                 p.Id, p.UserId, p.BusinessName, p.Description, p.PrimaryCategoryId,
                 Status = (int)p.Status, Availability = (int)p.Availability,
                 p.IsVerified, p.IsEmergencyCallout, p.Latitude, p.Longitude, p.PrimaryTownId,
-                SearchKeywords = searchKeywords
+                p.YearsExperience, SearchKeywords = searchKeywords
             }, tx);
 
         await conn.ExecuteAsync("DELETE FROM dbo.ProviderTowns WHERE ProviderId = @id", new { id = p.Id }, tx);
@@ -134,6 +156,94 @@ public sealed class ProviderRepository : IProviderRepository
             """, new { providerId });
     }
 
+    public async Task SetStartingPriceAsync(Guid providerId, decimal? price)
+    {
+        using var conn = await _db.CreateOpenConnectionAsync();
+        await conn.ExecuteAsync(
+            "UPDATE dbo.Providers SET StartingPrice = @price, UpdatedAtUtc = SYSUTCDATETIME() WHERE Id = @providerId",
+            new { price, providerId });
+    }
+
+    public async Task SetAvgResponseMinutesAsync(Guid providerId, int? minutes)
+    {
+        using var conn = await _db.CreateOpenConnectionAsync();
+        await conn.ExecuteAsync(
+            "UPDATE dbo.Providers SET AvgResponseMinutes = @minutes, UpdatedAtUtc = SYSUTCDATETIME() WHERE Id = @providerId",
+            new { minutes, providerId });
+    }
+
+    public async Task IncrementNoShowAsync(Guid providerId)
+    {
+        using var conn = await _db.CreateOpenConnectionAsync();
+        await conn.ExecuteAsync(
+            "UPDATE dbo.Providers SET NoShowCount = NoShowCount + 1 WHERE Id = @providerId", new { providerId });
+    }
+
+    public async Task IncrementLateCancellationAsync(Guid providerId)
+    {
+        using var conn = await _db.CreateOpenConnectionAsync();
+        await conn.ExecuteAsync(
+            "UPDATE dbo.Providers SET LateCancellationCount = LateCancellationCount + 1 WHERE Id = @providerId",
+            new { providerId });
+    }
+
+    public async Task<List<ProviderMatch>> FindMatchingProvidersAsync(
+        int? categoryId, int? townId, bool emergencyOnly, double? lat, double? lng, double radiusKm)
+    {
+        var p = new DynamicParameters();
+        var where = new StringBuilder("WHERE pr.Status = @activeStatus AND pr.Availability = @available");
+        p.Add("activeStatus", (int)ProviderStatus.Active);
+        p.Add("available", (int)AvailabilityStatus.Available);
+
+        if (categoryId is { } catId)
+        {
+            where.Append(" AND pr.PrimaryCategoryId = @catId");
+            p.Add("catId", catId);
+        }
+        if (townId is { } tid)
+        {
+            where.Append(" AND EXISTS (SELECT 1 FROM dbo.ProviderTowns ptw WHERE ptw.ProviderId = pr.Id AND ptw.TownId = @tid)");
+            p.Add("tid", tid);
+        }
+        if (emergencyOnly)
+            where.Append(" AND pr.IsEmergencyCallout = 1");
+
+        var hasGeo = lat is not null && lng is not null;
+        const string distanceExpr =
+            "6371 * 2 * ASIN(SQRT(POWER(SIN(RADIANS(pr.Latitude - @lat) / 2), 2) + " +
+            "COS(RADIANS(@lat)) * COS(RADIANS(pr.Latitude)) * POWER(SIN(RADIANS(pr.Longitude - @lng) / 2), 2)))";
+        var distanceSelect = hasGeo
+            ? $", CASE WHEN pr.Latitude IS NULL OR pr.Longitude IS NULL THEN NULL ELSE {distanceExpr} END AS DistanceKm"
+            : ", CAST(NULL AS float) AS DistanceKm";
+        if (hasGeo)
+        {
+            p.Add("lat", lat);
+            p.Add("lng", lng);
+            if (radiusKm > 0)
+            {
+                where.Append($" AND pr.Latitude IS NOT NULL AND pr.Longitude IS NOT NULL AND {distanceExpr} <= @radiusKm");
+                p.Add("radiusKm", radiusKm);
+            }
+        }
+
+        // Prioritize by proximity when known, then by fastest historical response time.
+        var orderBy = hasGeo
+            ? "ORDER BY DistanceKm, pr.AvgResponseMinutes"
+            : "ORDER BY pr.AvgResponseMinutes, pr.RatingAverage DESC";
+
+        var sql =
+            $"""
+            SELECT pr.Id AS ProviderId, pr.UserId AS ProviderUserId, pr.AvgResponseMinutes
+                   {distanceSelect}
+            FROM dbo.Providers pr
+            {where}
+            {orderBy}
+            """;
+
+        using var conn = await _db.CreateOpenConnectionAsync();
+        return (await conn.QueryAsync<ProviderMatch>(sql, p)).AsList();
+    }
+
     public async Task<PagedResult<ProviderSearchResult>> SearchAsync(ProviderSearchRequest r)
     {
         var p = new DynamicParameters();
@@ -173,6 +283,28 @@ public sealed class ProviderRepository : IProviderRepository
         {
             where.Append(" AND pr.Availability = @available");
             p.Add("available", (int)AvailabilityStatus.Available);
+        }
+
+        // Extended filters (price range via denormalized StartingPrice, experience, response time).
+        if (r.MinPrice is { } minPrice)
+        {
+            where.Append(" AND pr.StartingPrice >= @minPrice");
+            p.Add("minPrice", minPrice);
+        }
+        if (r.MaxPrice is { } maxPrice)
+        {
+            where.Append(" AND pr.StartingPrice IS NOT NULL AND pr.StartingPrice <= @maxPrice");
+            p.Add("maxPrice", maxPrice);
+        }
+        if (r.MinYearsExperience is { } minYears)
+        {
+            where.Append(" AND pr.YearsExperience >= @minYears");
+            p.Add("minYears", minYears);
+        }
+        if (r.MaxResponseMinutes is { } maxResp)
+        {
+            where.Append(" AND pr.AvgResponseMinutes IS NOT NULL AND pr.AvgResponseMinutes <= @maxResp");
+            p.Add("maxResp", maxResp);
         }
 
         if (r.Tags is { Count: > 0 })
@@ -228,7 +360,9 @@ public sealed class ProviderRepository : IProviderRepository
                 c.Name AS PrimaryCategoryName,
                 t.Name AS PrimaryTownName,
                 pr.Availability, pr.IsVerified, pr.IsEmergencyCallout,
-                pr.RatingAverage, pr.RatingCount, pr.Latitude, pr.Longitude
+                pr.RatingAverage, pr.RatingCount,
+                pr.YearsExperience, pr.AvgResponseMinutes, pr.StartingPrice,
+                pr.Latitude, pr.Longitude
                 {distanceSelect}
             FROM dbo.Providers pr
             LEFT JOIN dbo.Categories c ON c.Id = pr.PrimaryCategoryId

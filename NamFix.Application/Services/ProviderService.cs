@@ -18,12 +18,14 @@ public sealed class ProviderService : IProviderService
     private readonly IProviderRepository _providers;
     private readonly ITaxonomyRepository _taxonomy;
     private readonly IUserRepository _users;
+    private readonly IRateCardRepository _rateCards;
 
-    public ProviderService(IProviderRepository providers, ITaxonomyRepository taxonomy, IUserRepository users)
+    public ProviderService(IProviderRepository providers, ITaxonomyRepository taxonomy, IUserRepository users, IRateCardRepository rateCards)
     {
         _providers = providers;
         _taxonomy = taxonomy;
         _users = users;
+        _rateCards = rateCards;
     }
 
     public async Task<ProviderDto?> GetByIdAsync(Guid id)
@@ -60,6 +62,7 @@ public sealed class ProviderService : IProviderService
         provider.Latitude = request.Latitude;
         provider.Longitude = request.Longitude;
         provider.PrimaryTownId = request.PrimaryTownId;
+        provider.YearsExperience = request.YearsExperience;
         provider.UpdatedAtUtc = DateTime.UtcNow;
 
         // Free-text tags are queued for moderation; only approved tags end up searchable.
@@ -87,6 +90,7 @@ public sealed class ProviderService : IProviderService
         var categories = await _taxonomy.GetCategoriesAsync();
         var towns = await _taxonomy.GetTownsAsync();
         var owner = await _users.GetByIdAsync(p.UserId);
+        var rateCards = await _rateCards.ListDtosForProviderAsync(p.Id, activeOnly: true);
 
         return new ProviderDto
         {
@@ -107,8 +111,12 @@ public sealed class ProviderService : IProviderService
             RatingAverage = p.RatingAverage,
             RatingCount = p.RatingCount,
             OwnerPhoneNumber = owner?.PhoneNumber,
+            YearsExperience = p.YearsExperience,
+            AvgResponseMinutes = p.AvgResponseMinutes,
+            StartingPrice = p.StartingPrice,
             Tags = tags.ToList(),
-            TownIds = townIds.ToList()
+            TownIds = townIds.ToList(),
+            RateCards = rateCards
         };
     }
 }

@@ -49,9 +49,12 @@ try
     // Application + data layer (Dapper repositories, services, JWT, payment abstraction).
     builder.Services.AddNamFixApplication(builder.Configuration, connectionString);
 
-    // Realtime booking pushes go out over SignalR (BookingHub). The Application layer raises these
-    // through IBookingRealtimeNotifier; the host supplies the SignalR-backed implementation.
-    builder.Services.AddSingleton<NamFix.Shared.Contracts.IBookingRealtimeNotifier, SignalRBookingNotifier>();
+    // Realtime job + support pushes go out over SignalR (NotificationHub). The Application layer
+    // raises these through IJobRealtimeNotifier / ISupportRealtimeNotifier; the host supplies the
+    // SignalR-backed implementations. IPresenceTracker (who is online) is kept current by the hub.
+    builder.Services.AddSingleton<NamFix.Shared.Contracts.IJobRealtimeNotifier, SignalRJobNotifier>();
+    builder.Services.AddSingleton<NamFix.Shared.Contracts.ISupportRealtimeNotifier, SignalRSupportNotifier>();
+    builder.Services.AddSingleton<NamFix.Shared.Contracts.IPresenceTracker, InMemoryPresenceTracker>();
 
     // JWT bearer authentication using the same options the token service signs with.
     var jwt = new JwtOptions();
@@ -120,7 +123,7 @@ try
 
     app.MapControllers();
     app.MapHub<StatusHub>("/hubs/status");
-    app.MapHub<BookingHub>("/hubs/notifications");
+    app.MapHub<NotificationHub>("/hubs/notifications");
 
     app.Run();
 }

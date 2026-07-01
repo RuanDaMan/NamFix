@@ -89,6 +89,32 @@ public sealed class NamFixApiClient
     public async Task<ProviderDto?> SaveMyProviderAsync(SaveProviderRequest request) =>
         await SendAsync<ProviderDto>(() => _http.PutAsJsonAsync("api/providers/me", request));
 
+    // ---- Availability calendar ----
+    public async Task<ProviderAvailabilityDto?> GetProviderAvailabilityAsync(Guid providerId) =>
+        await SendAsync<ProviderAvailabilityDto>(() => _http.GetAsync($"api/providers/{providerId}/availability"));
+
+    public async Task<bool> SaveAvailabilityAsync(SaveAvailabilityRequest request) =>
+        await SendOkAsync(() => _http.PutAsJsonAsync("api/providers/me/availability", request));
+
+    public async Task<TimeOffDto?> AddTimeOffAsync(AddTimeOffRequest request) =>
+        await SendAsync<TimeOffDto>(() => _http.PostAsJsonAsync("api/providers/me/time-off", request));
+
+    public async Task<bool> RemoveTimeOffAsync(Guid timeOffId) =>
+        await SendOkAsync(() => _http.DeleteAsync($"api/providers/me/time-off/{timeOffId}"));
+
+    // ---- Rate cards ----
+    public async Task<List<RateCardDto>> GetProviderRateCardsAsync(Guid providerId) =>
+        await SendAsync<List<RateCardDto>>(() => _http.GetAsync($"api/providers/{providerId}/rate-cards")) ?? new();
+
+    public async Task<List<RateCardDto>> GetMyRateCardsAsync() =>
+        await SendAsync<List<RateCardDto>>(() => _http.GetAsync("api/providers/me/rate-cards")) ?? new();
+
+    public async Task<RateCardDto?> SaveRateCardAsync(SaveRateCardRequest request) =>
+        await SendAsync<RateCardDto>(() => _http.PostAsJsonAsync("api/providers/me/rate-cards", request));
+
+    public async Task<bool> DeleteRateCardAsync(Guid rateCardId) =>
+        await SendOkAsync(() => _http.DeleteAsync($"api/providers/me/rate-cards/{rateCardId}"));
+
     // ---- Reviews ----
     public async Task<List<ReviewDto>> GetReviewsAsync(Guid providerId) =>
         await SendAsync<List<ReviewDto>>(() => _http.GetAsync($"api/providers/{providerId}/reviews")) ?? new();
@@ -103,44 +129,75 @@ public sealed class NamFixApiClient
     public async Task<ProviderEarningsDto?> GetEarningsAsync() =>
         await SendAsync<ProviderEarningsDto>(() => _http.GetAsync("api/transactions/earnings"));
 
-    // ---- Bookings ----
-    public async Task<List<BookingDto>> GetMyBookingsAsync() =>
-        await SendAsync<List<BookingDto>>(() => _http.GetAsync("api/bookings")) ?? new();
+    // ---- Jobs (bookings, quotes, matching) ----
+    public async Task<List<JobRequestDto>> GetMyBookingsAsync() =>
+        await SendAsync<List<JobRequestDto>>(() => _http.GetAsync("api/jobs")) ?? new();
 
-    public async Task<BookingDto?> GetBookingAsync(Guid id) =>
-        await SendAsync<BookingDto>(() => _http.GetAsync($"api/bookings/{id}"));
+    /// <summary>Open jobs the signed-in provider was invited to / matches and can still quote on.</summary>
+    public async Task<List<JobRequestDto>> GetOpenJobsAsync() =>
+        await SendAsync<List<JobRequestDto>>(() => _http.GetAsync("api/jobs/open")) ?? new();
 
-    public async Task<BookingDto?> CreateBookingAsync(CreateBookingRequest request) =>
-        await SendAsync<BookingDto>(() => _http.PostAsJsonAsync("api/bookings", request));
+    public async Task<JobRequestDto?> GetBookingAsync(Guid id) =>
+        await SendAsync<JobRequestDto>(() => _http.GetAsync($"api/jobs/{id}"));
 
-    public async Task<BookingDto?> ProposeBookingTimeAsync(Guid id, DateTime proposedStartUtc) =>
-        await SendAsync<BookingDto>(() => _http.PostAsJsonAsync($"api/bookings/{id}/propose-time",
+    /// <summary>Client requests a booking with a specific provider (direct flow).</summary>
+    public async Task<JobRequestDto?> CreateBookingAsync(CreateDirectBookingRequest request) =>
+        await SendAsync<JobRequestDto>(() => _http.PostAsJsonAsync("api/jobs/direct", request));
+
+    /// <summary>Client posts a job to gather quotes (targeted or broadcast / urgent).</summary>
+    public async Task<JobRequestDto?> PostJobAsync(PostJobRequest request) =>
+        await SendAsync<JobRequestDto>(() => _http.PostAsJsonAsync("api/jobs", request));
+
+    public async Task<JobRequestDto?> ProposeBookingTimeAsync(Guid id, DateTime proposedStartUtc) =>
+        await SendAsync<JobRequestDto>(() => _http.PostAsJsonAsync($"api/jobs/{id}/propose-time",
             new ProposeTimeRequest { ProposedStartUtc = proposedStartUtc }));
 
-    public async Task<BookingDto?> AcceptBookingAsync(Guid id) =>
-        await SendAsync<BookingDto>(() => _http.PostAsync($"api/bookings/{id}/accept", null));
+    public async Task<JobRequestDto?> AcceptBookingAsync(Guid id) =>
+        await SendAsync<JobRequestDto>(() => _http.PostAsync($"api/jobs/{id}/accept", null));
 
-    public async Task<BookingDto?> DeclineBookingAsync(Guid id) =>
-        await SendAsync<BookingDto>(() => _http.PostAsync($"api/bookings/{id}/decline", null));
+    public async Task<JobRequestDto?> DeclineBookingAsync(Guid id) =>
+        await SendAsync<JobRequestDto>(() => _http.PostAsync($"api/jobs/{id}/decline", null));
 
-    public async Task<BookingDto?> CancelBookingAsync(Guid id) =>
-        await SendAsync<BookingDto>(() => _http.PostAsync($"api/bookings/{id}/cancel", null));
+    public async Task<JobRequestDto?> CancelBookingAsync(Guid id) =>
+        await SendAsync<JobRequestDto>(() => _http.PostAsync($"api/jobs/{id}/cancel", null));
 
-    public async Task<BookingDto?> SetBookingLocationAsync(Guid id, SetBookingLocationRequest request) =>
-        await SendAsync<BookingDto>(() => _http.PostAsJsonAsync($"api/bookings/{id}/location", request));
+    public async Task<JobRequestDto?> SetBookingLocationAsync(Guid id, SetJobLocationRequest request) =>
+        await SendAsync<JobRequestDto>(() => _http.PostAsJsonAsync($"api/jobs/{id}/location", request));
 
-    public async Task<BookingDto?> CompleteBookingAsync(Guid id, CompleteBookingRequest request) =>
-        await SendAsync<BookingDto>(() => _http.PostAsJsonAsync($"api/bookings/{id}/complete", request));
+    public async Task<JobRequestDto?> StartBookingAsync(Guid id) =>
+        await SendAsync<JobRequestDto>(() => _http.PostAsync($"api/jobs/{id}/start", null));
 
-    public async Task<BookingDto?> PayBookingAsync(Guid id) =>
-        await SendAsync<BookingDto>(() => _http.PostAsync($"api/bookings/{id}/pay", null));
+    public async Task<JobRequestDto?> CompleteBookingAsync(Guid id, CompleteJobRequest request) =>
+        await SendAsync<JobRequestDto>(() => _http.PostAsJsonAsync($"api/jobs/{id}/complete", request));
 
-    public async Task<List<BookingMessageDto>> GetBookingMessagesAsync(Guid id) =>
-        await SendAsync<List<BookingMessageDto>>(() => _http.GetAsync($"api/bookings/{id}/messages")) ?? new();
+    public async Task<JobRequestDto?> PayBookingAsync(Guid id) =>
+        await SendAsync<JobRequestDto>(() => _http.PostAsync($"api/jobs/{id}/pay", null));
 
-    public async Task<BookingMessageDto?> SendBookingMessageAsync(Guid id, string body) =>
-        await SendAsync<BookingMessageDto>(() => _http.PostAsJsonAsync($"api/bookings/{id}/messages",
-            new SendBookingMessageRequest { Body = body }));
+    public async Task<JobRequestDto?> FlagNoShowAsync(Guid id) =>
+        await SendAsync<JobRequestDto>(() => _http.PostAsync($"api/jobs/{id}/no-show", null));
+
+    public async Task<JobRequestDto?> ReviewBookingAsync(Guid id, CreateJobReviewRequest request) =>
+        await SendAsync<JobRequestDto>(() => _http.PostAsJsonAsync($"api/jobs/{id}/review", request));
+
+    // Quotes / matching
+    public async Task<List<JobResponseDto>> GetJobResponsesAsync(Guid id) =>
+        await SendAsync<List<JobResponseDto>>(() => _http.GetAsync($"api/jobs/{id}/quotes")) ?? new();
+
+    public async Task<JobResponseDto?> SubmitQuoteAsync(Guid id, SubmitQuoteRequest request) =>
+        await SendAsync<JobResponseDto>(() => _http.PostAsJsonAsync($"api/jobs/{id}/quotes", request));
+
+    public async Task<bool> WithdrawQuoteAsync(Guid id, Guid responseId) =>
+        await SendOkAsync(() => _http.PostAsync($"api/jobs/{id}/quotes/{responseId}/withdraw", null));
+
+    public async Task<JobRequestDto?> AcceptQuoteAsync(Guid id, Guid responseId) =>
+        await SendAsync<JobRequestDto>(() => _http.PostAsync($"api/jobs/{id}/accept-quote/{responseId}", null));
+
+    public async Task<List<JobMessageDto>> GetBookingMessagesAsync(Guid id) =>
+        await SendAsync<List<JobMessageDto>>(() => _http.GetAsync($"api/jobs/{id}/messages")) ?? new();
+
+    public async Task<JobMessageDto?> SendBookingMessageAsync(Guid id, string body) =>
+        await SendAsync<JobMessageDto>(() => _http.PostAsJsonAsync($"api/jobs/{id}/messages",
+            new SendJobMessageRequest { Body = body }));
 
     /// <summary>Uploads the provider's invoice file (multipart) for a booking.</summary>
     public async Task<bool> UploadBookingInvoiceAsync(Guid id, Stream content, string fileName, string contentType) =>
@@ -152,7 +209,7 @@ public sealed class NamFixApiClient
                 System.Net.Http.Headers.MediaTypeHeaderValue.TryParse(contentType, out var mt))
                 fileContent.Headers.ContentType = mt;
             form.Add(fileContent, "file", fileName);
-            return _http.PostAsync($"api/bookings/{id}/invoice", form);
+            return _http.PostAsync($"api/jobs/{id}/invoice", form);
         });
 
     /// <summary>Downloads the booking's invoice file as bytes (for a client-side download trigger).</summary>
@@ -160,7 +217,7 @@ public sealed class NamFixApiClient
     {
         try
         {
-            using var response = await _http.GetAsync($"api/bookings/{id}/invoice");
+            using var response = await _http.GetAsync($"api/jobs/{id}/invoice");
             if (!response.IsSuccessStatusCode)
             {
                 await ReportFailureAsync(response, operation);
@@ -191,6 +248,97 @@ public sealed class NamFixApiClient
     public async Task<bool> MarkAllNotificationsReadAsync() =>
         await SendOkAsync(() => _http.PostAsync("api/notifications/read-all", null));
 
+    // ---- Support / helpdesk ----
+    public async Task<List<SupportTicketDto>> GetMyTicketsAsync() =>
+        await SendAsync<List<SupportTicketDto>>(() => _http.GetAsync("api/support/tickets/mine")) ?? new();
+
+    public async Task<List<SupportTicketDto>> GetAllTicketsAsync(TicketStatus? status = null, SupportPriority? priority = null)
+    {
+        var query = new List<string>();
+        if (status is { } s) query.Add($"status={(int)s}");
+        if (priority is { } p) query.Add($"priority={(int)p}");
+        var url = "api/support/tickets" + (query.Count > 0 ? "?" + string.Join("&", query) : "");
+        return await SendAsync<List<SupportTicketDto>>(() => _http.GetAsync(url)) ?? new();
+    }
+
+    public async Task<SupportTicketDto?> GetTicketAsync(Guid id) =>
+        await SendAsync<SupportTicketDto>(() => _http.GetAsync($"api/support/tickets/{id}"));
+
+    public async Task<SupportTicketDto?> CreateTicketAsync(CreateTicketRequest request) =>
+        await SendAsync<SupportTicketDto>(() => _http.PostAsJsonAsync("api/support/tickets", request));
+
+    public async Task<SupportTicketDto?> UpdateTicketAsync(Guid id, UpdateTicketRequest request) =>
+        await SendAsync<SupportTicketDto>(() => _http.PostAsJsonAsync($"api/support/tickets/{id}", request));
+
+    public async Task<List<SupportMessageDto>> GetTicketMessagesAsync(Guid id) =>
+        await SendAsync<List<SupportMessageDto>>(() => _http.GetAsync($"api/support/tickets/{id}/messages")) ?? new();
+
+    public async Task<SupportMessageDto?> PostTicketMessageAsync(Guid id, string body) =>
+        await SendAsync<SupportMessageDto>(() => _http.PostAsJsonAsync($"api/support/tickets/{id}/messages",
+            new PostSupportMessageRequest { Body = body }));
+
+    /// <summary>Uploads a file to a ticket, optionally tied to a specific message in the thread.</summary>
+    public async Task<SupportAttachmentDto?> UploadTicketAttachmentAsync(
+        Guid id, Guid? messageId, Stream content, string fileName, string contentType) =>
+        await SendAsync<SupportAttachmentDto>(() =>
+        {
+            var form = new MultipartFormDataContent();
+            var fileContent = new StreamContent(content);
+            if (!string.IsNullOrWhiteSpace(contentType) &&
+                System.Net.Http.Headers.MediaTypeHeaderValue.TryParse(contentType, out var mt))
+                fileContent.Headers.ContentType = mt;
+            form.Add(fileContent, "file", fileName);
+            var url = $"api/support/tickets/{id}/attachments" + (messageId is { } m ? $"?messageId={m}" : "");
+            return _http.PostAsync(url, form);
+        });
+
+    /// <summary>Downloads a ticket attachment's bytes (for a client-side download trigger).</summary>
+    public async Task<FileDownload?> DownloadTicketAttachmentAsync(Guid attachmentId, [CallerMemberName] string operation = "")
+    {
+        try
+        {
+            using var response = await _http.GetAsync($"api/support/attachments/{attachmentId}");
+            if (!response.IsSuccessStatusCode)
+            {
+                await ReportFailureAsync(response, operation);
+                return null;
+            }
+
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            var name = response.Content.Headers.ContentDisposition?.FileNameStar
+                ?? response.Content.Headers.ContentDisposition?.FileName?.Trim('"')
+                ?? "attachment";
+            var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+            return new FileDownload(name, contentType, bytes);
+        }
+        catch (HttpRequestException ex)
+        {
+            _errors.Report(OfflineMessage, $"{operation}: {ex}");
+            return null;
+        }
+    }
+
+    // ---- Admin: users ----
+    public async Task<List<AdminUserDto>> GetUsersAsync() =>
+        await SendAsync<List<AdminUserDto>>(() => _http.GetAsync("api/admin/users")) ?? new();
+
+    public async Task<bool> SetUserActiveAsync(Guid id, bool isActive) =>
+        await SendOkAsync(() => _http.PostAsJsonAsync($"api/admin/users/{id}/active", isActive));
+
+    public async Task<bool> SetUserRoleAsync(Guid id, UserRole role) =>
+        await SendOkAsync(() => _http.PostAsJsonAsync($"api/admin/users/{id}/role",
+            new UpdateUserRoleRequest { Role = role }));
+
+    public async Task<bool> ResetUserPasswordAsync(Guid id, string newPassword) =>
+        await SendOkAsync(() => _http.PostAsJsonAsync($"api/admin/users/{id}/password",
+            new ResetPasswordRequest { NewPassword = newPassword }));
+
+    public async Task<List<JobRequestDto>> GetUserBookingsAsync(Guid id) =>
+        await SendAsync<List<JobRequestDto>>(() => _http.GetAsync($"api/admin/users/{id}/bookings")) ?? new();
+
+    public async Task<List<SupportTicketDto>> GetUserTicketsAsync(Guid id) =>
+        await SendAsync<List<SupportTicketDto>>(() => _http.GetAsync($"api/admin/users/{id}/tickets")) ?? new();
+
     // ---- Admin ----
     public async Task<RevenueReportDto?> GetRevenueAsync() =>
         await SendAsync<RevenueReportDto>(() => _http.GetAsync("api/admin/revenue"));
@@ -201,6 +349,12 @@ public sealed class NamFixApiClient
 
     public async Task<bool> SetProviderStatusAsync(Guid providerId, ProviderStatus status) =>
         await SendOkAsync(() => _http.PostAsJsonAsync($"api/admin/providers/{providerId}/status", status));
+
+    public async Task<PlatformSettingsDto?> GetPlatformSettingsAsync() =>
+        await SendAsync<PlatformSettingsDto>(() => _http.GetAsync("api/admin/settings"));
+
+    public async Task<bool> UpdatePlatformSettingsAsync(PlatformSettingsDto request) =>
+        await SendOkAsync(() => _http.PutAsJsonAsync("api/admin/settings", request));
 
     // ---- Central error-handling plumbing ----
 

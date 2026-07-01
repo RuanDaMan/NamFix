@@ -18,6 +18,13 @@ public class User
     public string PasswordHash { get; set; } = string.Empty;
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAtUtc { get; set; }
+
+    /// <summary>Last time the user held an authenticated realtime connection (for presence/last-seen).</summary>
+    public DateTime? LastSeenUtc { get; set; }
+
+    // Reliability counters (client side); the provider mirror lives on Provider.
+    public int NoShowCount { get; set; }
+    public int LateCancellationCount { get; set; }
 }
 
 public class RefreshToken
@@ -74,6 +81,16 @@ public class Provider
     public int? PrimaryTownId { get; set; }
     public decimal? RatingAverage { get; set; }
     public int RatingCount { get; set; }
+
+    // Extended search signals + reliability counters (see migrations 0013/0014).
+    public int? YearsExperience { get; set; }
+    /// <summary>Denormalized median/avg response time in minutes, powering the response-time badge.</summary>
+    public int? AvgResponseMinutes { get; set; }
+    /// <summary>Denormalized min active rate-card price, powering the price-range filter.</summary>
+    public decimal? StartingPrice { get; set; }
+    public int NoShowCount { get; set; }
+    public int LateCancellationCount { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 }
@@ -83,6 +100,7 @@ public class Review
     public Guid Id { get; set; }
     public Guid ProviderId { get; set; }
     public Guid ClientUserId { get; set; }
+    public Guid? JobRequestId { get; set; }
     public int Rating { get; set; }
     public string? Comment { get; set; }
     public bool IsVerified { get; set; }
@@ -126,22 +144,28 @@ public class CommissionRule
 }
 
 /// <summary>
-/// A negotiated job between a client and a provider. The proposed time is bounced back and forth
-/// (<see cref="Status"/> + <see cref="ProposedByUserId"/> track whose turn it is to approve) until
-/// agreed (<see cref="ConfirmedStartUtc"/>). The provider completes it with an invoice; the client
-/// pays that exact amount, producing the linked <see cref="TransactionId"/>.
-/// <see cref="ProviderUserId"/> is denormalized from the provider's owning user for cheap
-/// authorization and notification targeting.
+/// The single job entity spanning matching, quoting, booking and payment. A client posts it as a
+/// direct request to one provider or a broadcast to many (<see cref="TargetMode"/>); matching
+/// providers respond via <see cref="JobRequestResponse"/> until the client accepts one, which sets
+/// <see cref="ProviderId"/>. The time is then bounced back and forth (<see cref="Status"/> +
+/// <see cref="ProposedByUserId"/> track whose turn it is to approve) until agreed
+/// (<see cref="ConfirmedStartUtc"/>). The provider completes it with an invoice; the client pays that
+/// exact amount, producing the linked <see cref="TransactionId"/>. <see cref="ProviderUserId"/> is
+/// denormalized from the provider's owning user for cheap authorization and notification targeting.
+/// Both provider fields are null while a broadcast job is still gathering quotes.
 /// </summary>
-public class Booking
+public class JobRequest
 {
     public Guid Id { get; set; }
-    public Guid ProviderId { get; set; }
-    public Guid ProviderUserId { get; set; }
+    public Guid? ProviderId { get; set; }
+    public Guid? ProviderUserId { get; set; }
     public Guid ClientUserId { get; set; }
     public int? CategoryId { get; set; }
+    public int? TownId { get; set; }
     public string ServiceDescription { get; set; } = string.Empty;
-    public BookingStatus Status { get; set; }
+    public JobStatus Status { get; set; }
+    public JobTargetMode TargetMode { get; set; }
+    public JobUrgency Urgency { get; set; }
 
     /// <summary>The time currently on the table (awaiting the other party's approval).</summary>
     public DateTime? ProposedStartUtc { get; set; }
@@ -149,6 +173,11 @@ public class Booking
     public Guid? ProposedByUserId { get; set; }
     /// <summary>Set once both parties agree on a time.</summary>
     public DateTime? ConfirmedStartUtc { get; set; }
+    public DateTime? ConfirmedEndUtc { get; set; }
+    public int? DurationMinutes { get; set; }
+
+    /// <summary>Optional expiry on the quote-gathering window for a posted job.</summary>
+    public DateTime? QuoteExpiresUtc { get; set; }
 
     public string? LocationText { get; set; }
     public double? LocationLat { get; set; }
@@ -161,40 +190,153 @@ public class Booking
     /// <summary>The platform transaction created when the client pays the invoice.</summary>
     public Guid? TransactionId { get; set; }
 
+    // Cancellation / no-show accounting.
+    public Guid? CancelledByUserId { get; set; }
+    public DateTime? CancelledAtUtc { get; set; }
+    public bool WasLateCancellation { get; set; }
+    public Guid? NoShowByUserId { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 }
 
-/// <summary>A chat message within a booking thread, authored by either participant.</summary>
-public class BookingMessage
+/// <summary>A single provider's response to a job request: invitation, interest, or a quote.</summary>
+public class JobRequestResponse
 {
     public Guid Id { get; set; }
-    public Guid BookingId { get; set; }
+    public Guid JobRequestId { get; set; }
+    public Guid ProviderId { get; set; }
+    public Guid ProviderUserId { get; set; }
+    public JobResponseStatus Status { get; set; }
+    public decimal? QuoteAmount { get; set; }
+    public string? QuoteNote { get; set; }
+    public DateTime? QuoteExpiresUtc { get; set; }
+    public DateTime? ProposedStartUtc { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime? RespondedAtUtc { get; set; }
+}
+
+/// <summary>A chat message within a job thread, authored by either participant.</summary>
+public class JobRequestMessage
+{
+    public Guid Id { get; set; }
+    public Guid JobRequestId { get; set; }
     public Guid SenderUserId { get; set; }
     public string Body { get; set; } = string.Empty;
     public DateTime CreatedAtUtc { get; set; }
 }
 
-/// <summary>An uploaded file attached to a booking — currently the provider's invoice document.</summary>
-public class BookingAttachment
+/// <summary>An uploaded file attached to a job — the provider's invoice or a client's job photo.</summary>
+public class JobRequestAttachment
 {
     public Guid Id { get; set; }
-    public Guid BookingId { get; set; }
+    public Guid JobRequestId { get; set; }
     public Guid UploadedByUserId { get; set; }
+    public AttachmentKind Kind { get; set; }
     public string FileName { get; set; } = string.Empty;
     public string ContentType { get; set; } = "application/octet-stream";
     public byte[] Content { get; set; } = Array.Empty<byte>();
     public DateTime CreatedAtUtc { get; set; }
 }
 
-/// <summary>An in-app notification for a single recipient, usually tied to a booking event.</summary>
+/// <summary>A recurring weekly availability window for a provider (local time-of-day).</summary>
+public class ProviderAvailabilityRule
+{
+    public Guid Id { get; set; }
+    public Guid ProviderId { get; set; }
+    public DayOfWeek DayOfWeek { get; set; }
+    public TimeSpan StartTime { get; set; }
+    public TimeSpan EndTime { get; set; }
+}
+
+/// <summary>A one-off blocked date range when a provider is unavailable.</summary>
+public class ProviderTimeOff
+{
+    public Guid Id { get; set; }
+    public Guid ProviderId { get; set; }
+    public DateTime StartUtc { get; set; }
+    public DateTime EndUtc { get; set; }
+    public string? Reason { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+}
+
+/// <summary>A published price-list line on a provider's profile; seeds the quote form.</summary>
+public class ProviderRateCard
+{
+    public Guid Id { get; set; }
+    public Guid ProviderId { get; set; }
+    public int? CategoryId { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public decimal Price { get; set; }
+    public RateUnit Unit { get; set; }
+    public bool IsActive { get; set; } = true;
+    public int SortOrder { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
+}
+
+/// <summary>An admin-editable platform tunable (key/value).</summary>
+public class PlatformSetting
+{
+    public string Key { get; set; } = string.Empty;
+    public string Value { get; set; } = string.Empty;
+    public DateTime UpdatedAtUtc { get; set; }
+}
+
+/// <summary>An in-app notification for a single recipient, tied to a job or a support ticket.</summary>
 public class Notification
 {
     public Guid Id { get; set; }
     public Guid UserId { get; set; }
-    public Guid? BookingId { get; set; }
+    public Guid? JobRequestId { get; set; }
+    public Guid? TicketId { get; set; }
     public NotificationType Type { get; set; }
     public string Message { get; set; } = string.Empty;
     public bool IsRead { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+}
+
+/// <summary>
+/// A support/helpdesk request raised by a user. The requester and admins hold a threaded
+/// conversation (<see cref="SupportMessage"/>) with optional file attachments until it is resolved.
+/// <see cref="Status"/> tracks the lifecycle; <see cref="LastMessageAtUtc"/> orders the admin queue.
+/// </summary>
+public class SupportTicket
+{
+    public Guid Id { get; set; }
+    public Guid RequesterUserId { get; set; }
+    public string Subject { get; set; } = string.Empty;
+    public SupportCategory Category { get; set; }
+    public SupportPriority Priority { get; set; }
+    public TicketStatus Status { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
+    public DateTime LastMessageAtUtc { get; set; }
+    public DateTime? ClosedAtUtc { get; set; }
+}
+
+/// <summary>A message within a support ticket thread. <see cref="IsSystem"/> flags auto-generated notices.</summary>
+public class SupportMessage
+{
+    public Guid Id { get; set; }
+    public Guid TicketId { get; set; }
+    public Guid SenderUserId { get; set; }
+    public string Body { get; set; } = string.Empty;
+    public bool IsSystem { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+}
+
+/// <summary>A file attached to a support ticket, optionally tied to a specific message in the thread.</summary>
+public class SupportAttachment
+{
+    public Guid Id { get; set; }
+    public Guid TicketId { get; set; }
+    public Guid? MessageId { get; set; }
+    public Guid UploadedByUserId { get; set; }
+    public string FileName { get; set; } = string.Empty;
+    public string ContentType { get; set; } = "application/octet-stream";
+    public byte[] Content { get; set; } = Array.Empty<byte>();
+    public long SizeBytes { get; set; }
     public DateTime CreatedAtUtc { get; set; }
 }

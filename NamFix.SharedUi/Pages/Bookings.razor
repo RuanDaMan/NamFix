@@ -40,7 +40,7 @@ else
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
-    private List<BookingDto> _bookings = new();
+    private List<JobRequestDto> _bookings = new();
     private bool _loading = true;
     private Guid _userId;
 
@@ -68,33 +68,38 @@ else
         return Guid.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
     }
 
-    private string Counterpart(BookingDto b) =>
-        b.ProviderUserId == _userId ? b.ClientName : b.ProviderBusinessName;
+    private string Counterpart(JobRequestDto b) =>
+        b.ProviderUserId == _userId ? b.ClientName : (b.ProviderBusinessName ?? "Awaiting quotes");
 
-    private string WhenLabel(BookingDto b)
+    private string WhenLabel(JobRequestDto b)
     {
         var when = b.ConfirmedStartUtc ?? b.ProposedStartUtc;
         return when is { } d ? d.ToLocalTime().ToString("ddd d MMM, HH:mm") : "—";
     }
 
-    private static string StatusLabel(BookingStatus s) => s switch
+    private static string StatusLabel(JobStatus s) => s switch
     {
-        BookingStatus.PendingProvider => "Awaiting provider",
-        BookingStatus.PendingClient => "Awaiting client",
-        BookingStatus.Scheduled => "Scheduled",
-        BookingStatus.Completed => "Awaiting payment",
-        BookingStatus.Paid => "Paid",
-        BookingStatus.Cancelled => "Cancelled",
-        BookingStatus.Declined => "Declined",
+        JobStatus.Requested => "Gathering quotes",
+        JobStatus.Quoted => "Quotes received",
+        JobStatus.PendingProvider => "Awaiting provider",
+        JobStatus.PendingClient => "Awaiting client",
+        JobStatus.Scheduled => "Scheduled",
+        JobStatus.InProgress => "In progress",
+        JobStatus.Completed => "Awaiting payment",
+        JobStatus.Paid => "Paid",
+        JobStatus.Reviewed => "Reviewed",
+        JobStatus.Cancelled => "Cancelled",
+        JobStatus.Declined => "Declined",
+        JobStatus.NoShow => "No-show",
         _ => s.ToString()
     };
 
-    private static string StatusClass(BookingStatus s) => s switch
+    private static string StatusClass(JobStatus s) => s switch
     {
-        BookingStatus.Scheduled => "avail-available",
-        BookingStatus.Paid => "avail-available",
-        BookingStatus.Completed => "emergency",
-        BookingStatus.Cancelled or BookingStatus.Declined => "avail-busy",
+        JobStatus.Scheduled or JobStatus.InProgress => "avail-available",
+        JobStatus.Paid or JobStatus.Reviewed => "avail-available",
+        JobStatus.Completed => "emergency",
+        JobStatus.Cancelled or JobStatus.Declined or JobStatus.NoShow => "avail-busy",
         _ => "verified"
     };
 

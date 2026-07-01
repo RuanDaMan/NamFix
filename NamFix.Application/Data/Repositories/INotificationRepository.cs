@@ -22,10 +22,10 @@ public sealed class NotificationRepository : INotificationRepository
         using var conn = await _db.CreateOpenConnectionAsync();
         await conn.ExecuteAsync(
             """
-            INSERT INTO dbo.Notifications (Id, UserId, BookingId, Type, Message, IsRead, CreatedAtUtc)
-            VALUES (@Id, @UserId, @BookingId, @Type, @Message, @IsRead, @CreatedAtUtc)
+            INSERT INTO dbo.Notifications (Id, UserId, JobRequestId, TicketId, Type, Message, IsRead, CreatedAtUtc)
+            VALUES (@Id, @UserId, @JobRequestId, @TicketId, @Type, @Message, @IsRead, @CreatedAtUtc)
             """,
-            new { n.Id, n.UserId, n.BookingId, Type = (int)n.Type, n.Message, n.IsRead, n.CreatedAtUtc });
+            new { n.Id, n.UserId, n.JobRequestId, n.TicketId, Type = (int)n.Type, n.Message, n.IsRead, n.CreatedAtUtc });
     }
 
     public async Task<List<NotificationDto>> ListForUserAsync(Guid userId, int take = 30)
@@ -33,7 +33,7 @@ public sealed class NotificationRepository : INotificationRepository
         using var conn = await _db.CreateOpenConnectionAsync();
         return (await conn.QueryAsync<NotificationDto>(
             """
-            SELECT TOP (@take) Id, BookingId, Type, Message, IsRead, CreatedAtUtc
+            SELECT TOP (@take) Id, JobRequestId, TicketId, Type, Message, IsRead, CreatedAtUtc
             FROM dbo.Notifications
             WHERE UserId = @userId
             ORDER BY CreatedAtUtc DESC

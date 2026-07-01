@@ -78,6 +78,9 @@ else
             <InputCheckbox @bind-Value="_model.IsEmergencyCallout" /> I offer 24/7 emergency callouts
         </label>
 
+        <label>Years of experience</label>
+        <InputNumber @bind-Value="_model.YearsExperience" placeholder="e.g. 8" />
+
         <label>Pin your location (tap the map)</label>
         <MapView Center="PinCenter" Zoom="@(_model.Latitude is null ? 6 : 14)" PinMode="true"
                  OnPinned="OnPinned" Height="300px" Markers="PinMarkers" />
@@ -92,6 +95,15 @@ else
             <span class="nf-success">Saved ✓</span>
         }
     </EditForm>
+
+    <section class="nf-booking-section">
+        <h2>More</h2>
+        <div class="nf-booking-actions">
+            <a class="nf-link-btn" href="provider/rate-cards">💲 Manage rate card</a>
+            <a class="nf-link-btn" href="provider/availability">📅 Manage availability</a>
+            <a class="nf-link-btn" href="open-jobs">📢 Job board</a>
+        </div>
+    </section>
 
     @if (_earnings is not null)
     {
@@ -135,6 +147,7 @@ else
                 IsEmergencyCallout = existing.IsEmergencyCallout,
                 Latitude = existing.Latitude,
                 Longitude = existing.Longitude,
+                YearsExperience = existing.YearsExperience,
                 TownIds = existing.TownIds.ToList(),
                 Tags = existing.Tags.ToList()
             };

@@ -21,16 +21,66 @@ else
     <div class="nf-booking">
         <div class="nf-profile-head">
             <div>
-                <h1>@(IsProvider ? _booking.ClientName : _booking.ProviderBusinessName)</h1>
+                <h1>@(IsProvider ? _booking.ClientName : (_booking.ProviderBusinessName ?? "Your job request"))</h1>
                 <p class="nf-muted">@_booking.ServiceDescription</p>
             </div>
             <span class="nf-badge @StatusClass(_booking.Status)">@StatusLabel(_booking.Status)</span>
         </div>
 
+        @* ---- Quotes: client reviews provider responses and picks one ---- *@
+        @if (IsClient && _booking.Status is JobStatus.Requested or JobStatus.Quoted)
+        {
+            <section class="nf-booking-section">
+                <h3>Quotes (@_responses.Count)</h3>
+                @if (_responses.Count == 0)
+                {
+                    <p class="nf-muted">No responses yet. Providers are being notified — check back shortly.</p>
+                }
+                else
+                {
+                    <div class="nf-booking-list">
+                        @foreach (var r in _responses)
+                        {
+                            <div class="nf-booking-row" @key="r.Id">
+                                <div class="nf-booking-row-main">
+                                    <strong>@r.ProviderBusinessName</strong>
+                                    <span class="nf-muted">
+                                        @if (r.ProviderRatingAverage is { } avg)
+                                        {
+                                            <span>★ @avg.ToString("0.0") (@r.ProviderRatingCount)</span>
+                                        }
+                                        @if (r.ProviderAvgResponseMinutes is { } mins)
+                                        {
+                                            <span> · replies ~@mins min</span>
+                                        }
+                                    </span>
+                                    @if (!string.IsNullOrWhiteSpace(r.QuoteNote))
+                                    {
+                                        <span class="nf-muted">@r.QuoteNote</span>
+                                    }
+                                    @if (r.ProposedStartUtc is { } slot)
+                                    {
+                                        <span class="nf-muted">Suggested: @Local(slot)</span>
+                                    }
+                                </div>
+                                <div class="nf-booking-row-side">
+                                    <strong>@(r.QuoteAmount is { } q ? $"NAD {q:0.00}" : "Interested")</strong>
+                                    <button class="nf-cta" @onclick="() => AcceptQuoteAsync(r.Id)">Accept</button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
+        }
+
+        @* Schedule/delivery/chat only apply once a provider is chosen (not a broadcast still gathering quotes). *@
+        @if (ShowJobDetails)
+        {
         @* ---- Scheduling: the back-and-forth time negotiation ---- *@
         <section class="nf-booking-section">
             <h3>Schedule</h3>
-            @if (_booking.Status == BookingStatus.Scheduled)
+            @if (_booking.Status == JobStatus.Scheduled)
             {
                 <p class="nf-success">Confirmed for @Local(_booking.ConfirmedStartUtc).</p>
             }
@@ -57,7 +107,7 @@ else
             @if (CanNegotiate)
             {
                 <div class="nf-booking-propose">
-                    <label>@(_booking.Status == BookingStatus.Scheduled ? "Reschedule to" : "Propose a different time")</label>
+                    <label>@(_booking.Status == JobStatus.Scheduled ? "Reschedule to" : "Propose a different time")</label>
                     <div class="nf-pay-row">
                         <input type="datetime-local" @bind="_proposeTime" />
                         <button class="nf-link-btn" @onclick="ProposeAsync">Propose</button>
@@ -65,14 +115,25 @@ else
                 </div>
             }
 
+            @if (IsProvider && _booking.Status == JobStatus.Scheduled)
+            {
+                <div class="nf-booking-actions">
+                    <button class="nf-cta" @onclick="StartAsync">▶ Start job</button>
+                </div>
+            }
+
             <div class="nf-booking-actions">
-                @if (IsProvider && (_booking.Status is BookingStatus.PendingProvider or BookingStatus.PendingClient))
+                @if (IsProvider && (_booking.Status is JobStatus.PendingProvider or JobStatus.PendingClient))
                 {
                     <button class="nf-link-btn" @onclick="DeclineAsync">Decline request</button>
                 }
                 @if (CanCancel)
                 {
                     <button class="nf-link-btn" @onclick="CancelAsync">Cancel booking</button>
+                }
+                @if (CanFlagNoShow)
+                {
+                    <button class="nf-link-btn" @onclick="NoShowAsync">Report no-show</button>
                 }
             </div>
         </section>
@@ -154,7 +215,7 @@ else
                 <button class="nf-link-btn" @onclick="DownloadInvoiceAsync">🧾 Download invoice file</button>
             }
 
-            @if (IsProvider && _booking.Status == BookingStatus.Scheduled)
+            @if (IsProvider && _booking.Status is JobStatus.Scheduled or JobStatus.InProgress)
             {
                 <div class="nf-booking-propose">
                     <label>Mark done &amp; charge</label>
@@ -171,7 +232,7 @@ else
                     </div>
                 </div>
             }
-            else if (IsProvider && _booking.Status == BookingStatus.Completed && !_booking.HasInvoiceFile)
+            else if (IsProvider && _booking.Status == JobStatus.Completed && !_booking.HasInvoiceFile)
             {
                 <label class="nf-link-btn">
                     📎 @(_invoiceFileName ?? "Upload invoice file")
@@ -179,7 +240,7 @@ else
                 </label>
             }
 
-            @if (IsClient && _booking.Status == BookingStatus.Completed)
+            @if (IsClient && _booking.Status == JobStatus.Completed)
             {
                 <div class="nf-pay">
                     <p class="nf-muted">Pay the amount the provider invoiced. You can't pay a custom amount.</p>
@@ -188,9 +249,33 @@ else
                     </button>
                 </div>
             }
-            else if (_booking.Status == BookingStatus.Paid)
+            else if (_booking.Status is JobStatus.Paid or JobStatus.Reviewed)
             {
                 <p class="nf-success">Paid through NamFix.</p>
+            }
+
+            @if (IsClient && _booking.Status == JobStatus.Paid)
+            {
+                <div class="nf-booking-propose">
+                    <label>Rate the provider</label>
+                    <div class="nf-pay-row">
+                        <select @bind="_reviewRating">
+                            <option value="5">★★★★★ Excellent</option>
+                            <option value="4">★★★★ Good</option>
+                            <option value="3">★★★ Okay</option>
+                            <option value="2">★★ Poor</option>
+                            <option value="1">★ Bad</option>
+                        </select>
+                        <input placeholder="Comment (optional)" @bind="_reviewComment" />
+                    </div>
+                    <div class="nf-booking-actions">
+                        <button class="nf-cta" @onclick="ReviewAsync">Submit review</button>
+                    </div>
+                </div>
+            }
+            else if (AlreadyReviewed)
+            {
+                <p class="nf-success">Thanks for your review ⭐</p>
             }
         </section>
 
@@ -215,6 +300,7 @@ else
                 <button class="nf-cta" @onclick="SendMessageAsync" disabled="@string.IsNullOrWhiteSpace(_draft)">Send</button>
             </div>
         </section>
+        }
     </div>
 }
 
@@ -222,8 +308,9 @@ else
     [Parameter] public Guid Id { get; set; }
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
-    private BookingDto? _booking;
-    private List<BookingMessageDto> _messages = new();
+    private JobRequestDto? _booking;
+    private List<JobMessageDto> _messages = new();
+    private List<JobResponseDto> _responses = new();
     private bool _loading = true;
     private Guid _userId;
 
@@ -238,21 +325,30 @@ else
     private string? _invoiceNotes;
     private string? _invoiceFileName;
     private string _draft = string.Empty;
+    private int _reviewRating = 5;
+    private string? _reviewComment;
 
     private bool IsProvider => _booking is not null && _booking.ProviderUserId == _userId;
     private bool IsClient => _booking is not null && _booking.ClientUserId == _userId;
     private bool IsActive => _booking is not null &&
-        _booking.Status is not (BookingStatus.Paid or BookingStatus.Cancelled or BookingStatus.Declined);
+        _booking.Status is not (JobStatus.Paid or JobStatus.Reviewed or JobStatus.Cancelled
+            or JobStatus.Declined or JobStatus.NoShow);
+    private bool CanFlagNoShow => _booking is not null &&
+        _booking.Status is JobStatus.Scheduled or JobStatus.InProgress &&
+        _booking.ConfirmedStartUtc is { } start && DateTime.UtcNow >= start;
+    private bool AlreadyReviewed => _booking is not null && _booking.Status == JobStatus.Reviewed;
+    private bool ShowJobDetails => _booking is not null &&
+        _booking.Status is not (JobStatus.Requested or JobStatus.Quoted);
     private bool MyTurnToApprove => _booking is not null &&
-        ((_booking.Status == BookingStatus.PendingProvider && IsProvider) ||
-         (_booking.Status == BookingStatus.PendingClient && IsClient));
+        ((_booking.Status == JobStatus.PendingProvider && IsProvider) ||
+         (_booking.Status == JobStatus.PendingClient && IsClient));
     private bool WaitingOnOther => _booking is not null &&
-        ((_booking.Status == BookingStatus.PendingProvider && IsClient) ||
-         (_booking.Status == BookingStatus.PendingClient && IsProvider));
+        ((_booking.Status == JobStatus.PendingProvider && IsClient) ||
+         (_booking.Status == JobStatus.PendingClient && IsProvider));
     private bool CanNegotiate => _booking is not null &&
-        _booking.Status is BookingStatus.PendingProvider or BookingStatus.PendingClient or BookingStatus.Scheduled;
+        _booking.Status is JobStatus.PendingProvider or JobStatus.PendingClient or JobStatus.Scheduled;
     private bool CanCancel => _booking is not null &&
-        _booking.Status is BookingStatus.PendingProvider or BookingStatus.PendingClient or BookingStatus.Scheduled;
+        _booking.Status is JobStatus.PendingProvider or JobStatus.PendingClient or JobStatus.Scheduled;
 
     protected override async Task OnInitializedAsync()
     {
@@ -267,7 +363,11 @@ else
     {
         _loading = true;
         _booking = await Api.GetBookingAsync(Id);
-        _messages = _booking is null ? new() : await Api.GetBookingMessagesAsync(Id);
+        _messages = _booking is null || !ShowJobDetails ? new() : await Api.GetBookingMessagesAsync(Id);
+        // The client sees quotes while the job is still gathering them.
+        _responses = _booking is not null && IsClient && !ShowJobDetails
+            ? await Api.GetJobResponsesAsync(Id)
+            : new();
         _loading = false;
         StateHasChanged();
     }
@@ -277,7 +377,7 @@ else
         if (bookingId == Id) _ = InvokeAsync(LoadAsync);
     }
 
-    private void OnMessagePosted(Guid bookingId, BookingMessageDto message)
+    private void OnMessagePosted(Guid bookingId, JobMessageDto message)
     {
         if (bookingId != Id) return;
         _ = InvokeAsync(() =>
@@ -290,7 +390,7 @@ else
         });
     }
 
-    private void Apply(BookingDto? updated)
+    private void Apply(JobRequestDto? updated)
     {
         if (updated is not null) _booking = updated;
     }
@@ -298,6 +398,15 @@ else
     private async Task AcceptAsync() => Apply(await Api.AcceptBookingAsync(Id));
     private async Task DeclineAsync() => Apply(await Api.DeclineBookingAsync(Id));
     private async Task CancelAsync() => Apply(await Api.CancelBookingAsync(Id));
+    private async Task StartAsync() => Apply(await Api.StartBookingAsync(Id));
+    private async Task NoShowAsync() => Apply(await Api.FlagNoShowAsync(Id));
+
+    private async Task ReviewAsync() =>
+        Apply(await Api.ReviewBookingAsync(Id, new CreateJobReviewRequest
+        {
+            Rating = _reviewRating,
+            Comment = _reviewComment
+        }));
 
     private async Task ProposeAsync()
     {
@@ -359,7 +468,7 @@ else
     private async Task SaveLocationAsync()
     {
         if (string.IsNullOrWhiteSpace(_locationText)) return;
-        Apply(await Api.SetBookingLocationAsync(Id, new SetBookingLocationRequest
+        Apply(await Api.SetBookingLocationAsync(Id, new SetJobLocationRequest
         {
             LocationText = _locationText!,
             Lat = _locLat,
@@ -370,7 +479,7 @@ else
     private async Task CompleteAsync()
     {
         if (_invoiceAmount <= 0) return;
-        Apply(await Api.CompleteBookingAsync(Id, new CompleteBookingRequest
+        Apply(await Api.CompleteBookingAsync(Id, new CompleteJobRequest
         {
             InvoiceAmount = _invoiceAmount,
             InvoiceNotes = _invoiceNotes
@@ -398,6 +507,16 @@ else
 
     private async Task PayAsync() => Apply(await Api.PayBookingAsync(Id));
 
+    private async Task AcceptQuoteAsync(Guid responseId)
+    {
+        var updated = await Api.AcceptQuoteAsync(Id, responseId);
+        if (updated is not null)
+        {
+            _booking = updated;
+            await LoadAsync();
+        }
+    }
+
     private async Task OnChatKeyDown(KeyboardEventArgs e)
     {
         if (e.Key == "Enter") await SendMessageAsync();
@@ -423,23 +542,28 @@ else
     private static string Local(DateTime? utc) =>
         utc is { } d ? d.ToLocalTime().ToString("ddd d MMM yyyy, HH:mm") : "—";
 
-    private static string StatusLabel(BookingStatus s) => s switch
+    private static string StatusLabel(JobStatus s) => s switch
     {
-        BookingStatus.PendingProvider => "Awaiting provider",
-        BookingStatus.PendingClient => "Awaiting client",
-        BookingStatus.Scheduled => "Scheduled",
-        BookingStatus.Completed => "Awaiting payment",
-        BookingStatus.Paid => "Paid",
-        BookingStatus.Cancelled => "Cancelled",
-        BookingStatus.Declined => "Declined",
+        JobStatus.Requested => "Gathering quotes",
+        JobStatus.Quoted => "Quotes received",
+        JobStatus.PendingProvider => "Awaiting provider",
+        JobStatus.PendingClient => "Awaiting client",
+        JobStatus.Scheduled => "Scheduled",
+        JobStatus.InProgress => "In progress",
+        JobStatus.Completed => "Awaiting payment",
+        JobStatus.Paid => "Paid",
+        JobStatus.Reviewed => "Reviewed",
+        JobStatus.Cancelled => "Cancelled",
+        JobStatus.Declined => "Declined",
+        JobStatus.NoShow => "No-show",
         _ => s.ToString()
     };
 
-    private static string StatusClass(BookingStatus s) => s switch
+    private static string StatusClass(JobStatus s) => s switch
     {
-        BookingStatus.Scheduled or BookingStatus.Paid => "avail-available",
-        BookingStatus.Completed => "emergency",
-        BookingStatus.Cancelled or BookingStatus.Declined => "avail-busy",
+        JobStatus.Scheduled or JobStatus.InProgress or JobStatus.Paid or JobStatus.Reviewed => "avail-available",
+        JobStatus.Completed => "emergency",
+        JobStatus.Cancelled or JobStatus.Declined or JobStatus.NoShow => "avail-busy",
         _ => "verified"
     };
 

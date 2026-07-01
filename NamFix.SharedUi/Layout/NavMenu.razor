@@ -13,15 +13,22 @@
             @(Theme.IsDark ? "☀️" : "🌙")
         </button>
         <a href="">Search</a>
+        <AuthorizeView Roles="Client">
+            <a href="post-job">Get matched</a>
+        </AuthorizeView>
         <AuthorizeView Roles="ServiceProvider">
             <a href="provider/dashboard">My Listing</a>
+            <a href="open-jobs">Job board</a>
         </AuthorizeView>
         <AuthorizeView Roles="Admin">
             <a href="admin">Admin</a>
+            <a href="admin/tickets">Tickets</a>
+            <a href="admin/users">Users</a>
         </AuthorizeView>
         <AuthorizeView>
             <Authorized>
                 <a href="bookings">Bookings</a>
+                <a href="support">Support</a>
                 <NotificationsBell />
                 <span class="nf-user">Hi, @context.User.Identity?.Name</span>
                 <button class="nf-link-btn" @onclick="LogoutAsync">Log out</button>

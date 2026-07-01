@@ -68,7 +68,8 @@
     {
         _open = false;
         if (!n.IsRead) await Notifications.MarkReadAsync(n.Id);
-        if (n.BookingId is { } bookingId) Nav.NavigateTo($"bookings/{bookingId}");
+        if (n.TicketId is { } ticketId) Nav.NavigateTo($"support/{ticketId}");
+        else if (n.JobRequestId is { } jobId) Nav.NavigateTo($"bookings/{jobId}");
     }
 
     private static string Icon(NotificationType type) => type switch
@@ -82,6 +83,18 @@
         NotificationType.BookingDeclined => "🚫",
         NotificationType.NewMessage => "💬",
         NotificationType.LocationShared => "📍",
+        NotificationType.SupportTicketCreated => "🎫",
+        NotificationType.SupportReply => "💬",
+        NotificationType.SupportStatusChanged => "🔄",
+        NotificationType.SupportResolved => "✅",
+        NotificationType.JobPosted => "📢",
+        NotificationType.UrgentJobBroadcast => "🚨",
+        NotificationType.QuoteReceived => "💬",
+        NotificationType.QuoteAccepted => "🤝",
+        NotificationType.QuoteDeclined => "🚫",
+        NotificationType.JobStarted => "▶️",
+        NotificationType.NoShowFlagged => "⚠️",
+        NotificationType.ReviewRequested => "⭐",
         _ => "🔔"
     };
 

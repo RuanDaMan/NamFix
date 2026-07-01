@@ -29,8 +29,12 @@ public static class DependencyInjection
         services.AddScoped<IReviewRepository, ReviewRepository>();
         services.AddScoped<ITransactionRepository, TransactionRepository>();
         services.AddScoped<ICommissionRepository, CommissionRepository>();
-        services.AddScoped<IBookingRepository, BookingRepository>();
+        services.AddScoped<IJobRepository, JobRequestRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
+        services.AddScoped<ISupportRepository, SupportRepository>();
+        services.AddScoped<IAvailabilityRepository, AvailabilityRepository>();
+        services.AddScoped<IRateCardRepository, RateCardRepository>();
+        services.AddScoped<IPlatformSettingsRepository, PlatformSettingsRepository>();
 
         // Security
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
@@ -46,7 +50,12 @@ public static class DependencyInjection
         services.AddScoped<ITaxonomyService, TaxonomyService>();
         services.AddScoped<IReviewService, ReviewService>();
         services.AddScoped<IAdminService, AdminService>();
-        services.AddScoped<IBookingService, BookingService>();
+        services.AddScoped<IJobService, JobRequestService>();
+        services.AddScoped<IAvailabilityService, AvailabilityService>();
+        services.AddScoped<IRateCardService, RateCardService>();
+        services.AddScoped<IPlatformSettingsService, PlatformSettingsService>();
+        services.AddScoped<ISupportService, SupportService>();
+        services.AddScoped<IUserAdminService, UserAdminService>();
 
         return services;
     }

@@ -24,6 +24,20 @@ else
                     }
                 </h1>
                 <p class="nf-muted">@_provider.PrimaryCategoryName · 📍 @_provider.PrimaryTownName</p>
+                <p class="nf-muted">
+                    @if (_provider.YearsExperience is { } yrs)
+                    {
+                        <span class="nf-badge">@yrs yrs experience</span>
+                    }
+                    @if (_provider.AvgResponseMinutes is { } mins)
+                    {
+                        <span class="nf-badge">⚡ replies ~@mins min</span>
+                    }
+                    @if (_provider.StartingPrice is { } price)
+                    {
+                        <span class="nf-badge">from N$@price.ToString("0")</span>
+                    }
+                </p>
                 <RatingStars Value="_provider.RatingAverage" Count="_provider.RatingCount" />
             </div>
             <div class="nf-profile-actions">
@@ -46,6 +60,28 @@ else
                 <span class="nf-tag">@tag</span>
             }
         </div>
+
+        @if (_provider.RateCards.Count > 0)
+        {
+            <section class="nf-booking-section">
+                <h3>Rate card</h3>
+                <div class="nf-booking-list">
+                    @foreach (var rc in _provider.RateCards)
+                    {
+                        <div class="nf-booking-row" @key="rc.Id">
+                            <div class="nf-booking-row-main">
+                                <strong>@rc.Title</strong>
+                                <span class="nf-muted">@rc.Description</span>
+                            </div>
+                            <div class="nf-booking-row-side">
+                                <strong>N$@rc.Price.ToString("0.00") / @RateUnitLabel(rc.Unit)</strong>
+                            </div>
+                        </div>
+                    }
+                </div>
+                <p class="nf-muted">Indicative prices — confirm the final amount in your booking.</p>
+            </section>
+        }
 
         @if (_provider.Latitude is not null && _provider.Longitude is not null)
         {
@@ -146,7 +182,7 @@ else
     {
         if (string.IsNullOrWhiteSpace(_bookingDescription)) return;
         _submitting = true;
-        var booking = await Api.CreateBookingAsync(new CreateBookingRequest
+        var booking = await Api.CreateBookingAsync(new CreateDirectBookingRequest
         {
             ProviderId = Id,
             ServiceDescription = _bookingDescription!,
@@ -155,6 +191,15 @@ else
         _submitting = false;
         if (booking is not null) Nav.NavigateTo($"bookings/{booking.Id}");
     }
+
+    private static string RateUnitLabel(RateUnit u) => u switch
+    {
+        RateUnit.PerJob => "job",
+        RateUnit.PerHour => "hour",
+        RateUnit.Callout => "callout",
+        RateUnit.PerUnit => "unit",
+        _ => u.ToString()
+    };
 
     private async Task SubmitReviewAsync()
     {

@@ -23,8 +23,12 @@ public record ProviderDto
     public decimal? RatingAverage { get; init; }
     public int RatingCount { get; init; }
     public string? OwnerPhoneNumber { get; init; }
+    public int? YearsExperience { get; init; }
+    public int? AvgResponseMinutes { get; init; }
+    public decimal? StartingPrice { get; init; }
     public List<string> Tags { get; init; } = new();
     public List<int> TownIds { get; init; } = new();
+    public List<RateCardDto> RateCards { get; init; } = new();
 }
 
 /// <summary>Create/update payload for a provider managing their own profile (bound by EditForm).</summary>
@@ -40,6 +44,7 @@ public record SaveProviderRequest
 
     public bool IsEmergencyCallout { get; set; }
     public AvailabilityStatus Availability { get; set; } = AvailabilityStatus.Available;
+    public int? YearsExperience { get; set; }
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
     public int? PrimaryTownId { get; set; }
@@ -59,6 +64,9 @@ public record ProviderSearchResult
     public bool IsEmergencyCallout { get; init; }
     public decimal? RatingAverage { get; init; }
     public int RatingCount { get; init; }
+    public int? YearsExperience { get; init; }
+    public int? AvgResponseMinutes { get; init; }
+    public decimal? StartingPrice { get; init; }
     public double? Latitude { get; init; }
     public double? Longitude { get; init; }
     public double? DistanceKm { get; init; }
@@ -79,6 +87,13 @@ public record ProviderSearchRequest
     public decimal? MinRating { get; set; }
     public bool? EmergencyOnly { get; set; }
     public bool? AvailableNowOnly { get; set; }
+
+    // Extended filters (feature 9).
+    public decimal? MinPrice { get; set; }
+    public decimal? MaxPrice { get; set; }
+    public int? MinYearsExperience { get; set; }
+    /// <summary>Only providers whose average response time is at or below this many minutes.</summary>
+    public int? MaxResponseMinutes { get; set; }
 
     /// <summary>When supplied, results can be distance-sorted for "near me".</summary>
     public double? NearLatitude { get; set; }

@@ -1,0 +1,83 @@
+@page "/post-job"
+@attribute [Authorize(Roles = "Client")]
+@inject NamFixApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>Get matched — NamFix</PageTitle>
+
+<h1>Get matched</h1>
+<p class="nf-muted">Describe the job and we'll notify nearby providers who match. They respond with quotes — you pick one.</p>
+
+<EditForm Model="_request" OnValidSubmit="SubmitAsync" class="nf-form">
+    <DataAnnotationsValidator />
+
+    <label>What do you need done?</label>
+    <InputTextArea @bind-Value="_request.ServiceDescription" rows="3" placeholder="e.g. Burst geyser pipe flooding the bathroom, need it stopped today" />
+    <ValidationMessage For="() => _request.ServiceDescription" />
+
+    <div class="nf-form-row">
+        <div>
+            <label>Category</label>
+            <InputSelect @bind-Value="_request.CategoryId">
+                <option value="">Any</option>
+                @foreach (var c in _categories)
+                {
+                    <option value="@c.Id">@c.Name</option>
+                }
+            </InputSelect>
+        </div>
+        <div>
+            <label>Town</label>
+            <InputSelect @bind-Value="_request.TownId">
+                <option value="">Any</option>
+                @foreach (var t in _towns)
+                {
+                    <option value="@t.Id">@t.Name</option>
+                }
+            </InputSelect>
+        </div>
+    </div>
+
+    <label>Preferred time (optional)</label>
+    <input type="datetime-local" @bind="_preferredTime" />
+
+    <label class="nf-check">
+        <InputCheckbox @bind-Value="_urgent" /> This is urgent (broadcast to emergency providers available now)
+    </label>
+
+    <div class="nf-booking-actions">
+        <button class="nf-cta" type="submit" disabled="@_submitting">
+            @(_submitting ? "Posting…" : "Post job & get quotes")
+        </button>
+    </div>
+</EditForm>
+
+@code {
+    private readonly PostJobRequest _request = new() { TargetMode = JobTargetMode.Broadcast };
+    private List<CategoryDto> _categories = new();
+    private List<TownDto> _towns = new();
+    private DateTime? _preferredTime;
+    private bool _urgent;
+    private bool _submitting;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _categories = await Api.GetCategoriesAsync();
+        _towns = await Api.GetTownsAsync();
+    }
+
+    private async Task SubmitAsync()
+    {
+        _submitting = true;
+        var payload = _request with
+        {
+            Urgency = _urgent ? JobUrgency.Urgent : JobUrgency.Normal,
+            PreferredStartUtc = _preferredTime is { } t
+                ? DateTime.SpecifyKind(t, DateTimeKind.Local).ToUniversalTime()
+                : null
+        };
+        var job = await Api.PostJobAsync(payload);
+        _submitting = false;
+        if (job is not null) Nav.NavigateTo($"bookings/{job.Id}");
+    }
+}

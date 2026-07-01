@@ -174,6 +174,10 @@ body {
 .nf-form-card, .nf-form { max-width: 520px; margin: 1.5rem auto; background: var(--nf-card);
     border: 1px solid var(--nf-border); border-radius: var(--nf-radius); padding: 1.5rem; }
 .nf-form { max-width: 640px; }
+.nf-form-row { display: flex; gap: .75rem; flex-wrap: wrap; }
+.nf-form-row > div { flex: 1; min-width: 140px; }
+.nf-filter-num { width: 8rem; padding: .5rem; border: 1px solid var(--nf-border); border-radius: var(--nf-radius);
+    background: var(--nf-card); color: var(--nf-text); font-size: .95rem; }
 .nf-form label, .nf-form-card label { display: block; font-weight: 600; margin: .75rem 0 .25rem; }
 .nf-form input, .nf-form textarea, .nf-form select,
 .nf-form-card input, .nf-form-card select {
@@ -299,3 +303,66 @@ body {
 #blazor-error-ui { display: none; position: fixed; left: 0; bottom: 0; width: 100%; box-sizing: border-box; z-index: 1100; padding: .7rem 1.25rem; background: var(--nf-danger); color: #fff; box-shadow: 0 -1px 4px rgba(0, 0, 0, .3); }
 #blazor-error-ui .reload { color: #fff; text-decoration: underline; }
 #blazor-error-ui .dismiss { cursor: pointer; position: absolute; right: .75rem; top: .5rem; }
+
+/* ---- Support / helpdesk + admin user management ---- */
+
+/* Shared form controls used by the support + admin pages */
+.nf-input { width: 100%; box-sizing: border-box; padding: .6rem; border: 1px solid var(--nf-border);
+    border-radius: var(--nf-radius); background: var(--nf-card); color: var(--nf-text); font: inherit; }
+.nf-field-label { display: block; font-size: .8rem; font-weight: 600; color: var(--nf-muted); margin: .6rem 0 .25rem; }
+.nf-file-btn { display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; }
+
+.nf-support-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.nf-support-subhead { margin-top: 2rem; }
+.nf-support-form .nf-pay-row { align-items: flex-end; }
+.nf-support-form .nf-pay-row > div { flex: 1; min-width: 150px; }
+
+/* Attachment chips + lists */
+.nf-attach-list { list-style: none; padding: 0; margin: .5rem 0; display: flex; flex-direction: column; gap: .25rem; font-size: .85rem; }
+.nf-chat-attachments { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .3rem; }
+.nf-attach-chip { font-size: .78rem; padding: .2rem .5rem; }
+
+/* System messages in a ticket thread read as centred notices */
+.nf-chat-msg.system { align-self: center; background: var(--nf-status-bg); border-color: var(--nf-status-border);
+    text-align: center; max-width: 90%; }
+
+.nf-ticket-badges { display: flex; gap: .4rem; align-items: center; }
+.nf-ticket-filters { display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap; margin-bottom: 1rem; }
+.nf-ticket-filters > div { min-width: 140px; }
+.nf-ticket-counts { display: flex; gap: .4rem; margin-left: auto; }
+
+/* Admin dashboard quick-link cards */
+.nf-admin-links { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: .5rem; }
+.nf-admin-card { display: flex; align-items: center; gap: .75rem; padding: 1rem 1.25rem; text-decoration: none;
+    color: var(--nf-text); background: var(--nf-card); border: 1px solid var(--nf-border); border-radius: var(--nf-radius);
+    box-shadow: var(--nf-shadow); min-width: 220px; }
+.nf-admin-card:hover { border-color: var(--nf-primary); }
+.nf-admin-card-icon { font-size: 1.6rem; }
+.nf-admin-card span span { display: block; }
+
+/* Presence dot */
+.nf-presence { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%; background: var(--nf-avail-offline-fg); }
+.nf-presence.online { background: var(--nf-green); box-shadow: 0 0 0 3px rgba(22,163,74,.2); }
+.nf-presence.offline { background: var(--nf-avail-offline-fg); opacity: .6; }
+.nf-user-legend { display: flex; align-items: center; gap: .5rem; }
+
+/* User management table (CSS grid rows so it collapses gracefully on mobile) */
+.nf-user-table { display: flex; flex-direction: column; gap: .4rem; }
+.nf-user-row { display: grid; grid-template-columns: 2.2fr 1fr .9fr 1.2fr 1.4fr; gap: .75rem; align-items: center;
+    padding: .7rem .85rem; background: var(--nf-card); border: 1px solid var(--nf-border); border-radius: var(--nf-radius); }
+.nf-user-head { font-size: .75rem; font-weight: 700; color: var(--nf-muted); background: transparent; border: none; padding-bottom: 0; }
+.nf-user-main { display: flex; flex-direction: column; gap: .1rem; }
+.nf-user-name { padding: 0; border: none; background: none; text-align: left; }
+.nf-role-select { padding: .35rem; }
+.nf-user-presence { display: flex; align-items: center; gap: .4rem; font-size: .8rem; }
+.nf-user-actions { display: flex; flex-direction: column; gap: .25rem; align-items: flex-start; }
+.nf-user-reset { grid-column: 1 / -1; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; padding-top: .5rem; border-top: 1px dashed var(--nf-border); }
+.nf-user-reset .nf-input { max-width: 260px; }
+.nf-user-activity { grid-column: 1 / -1; display: flex; gap: 2rem; flex-wrap: wrap; padding-top: .6rem; border-top: 1px dashed var(--nf-border); }
+.nf-user-activity h4 { margin: 0 0 .35rem; font-size: .85rem; }
+.nf-activity-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .2rem; font-size: .85rem; }
+
+@media (max-width: 720px) {
+    .nf-user-row { grid-template-columns: 1fr 1fr; }
+    .nf-user-head { display: none; }
+}

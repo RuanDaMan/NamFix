@@ -1,0 +1,221 @@
+@page "/admin/users"
+@attribute [Authorize(Roles = "Admin")]
+@implements IDisposable
+@inject NamFixApiClient Api
+
+<PageTitle>Users — NamFix</PageTitle>
+
+<div class="nf-support-head">
+    <h1>User management</h1>
+    <div class="nf-user-legend">
+        <span class="nf-presence online"></span> @_users.Count(u => u.IsOnline) online
+        <button class="nf-link-btn" @onclick="LoadAsync">↻ Refresh</button>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <p class="nf-muted">Loading…</p>
+}
+else
+{
+    <section class="nf-admin-block">
+        <div class="nf-user-table">
+            <div class="nf-user-row nf-user-head">
+                <span>User</span>
+                <span>Role</span>
+                <span>Status</span>
+                <span>Presence</span>
+                <span>Actions</span>
+            </div>
+
+            @foreach (var u in _users)
+            {
+                <div class="nf-user-row" @key="u.Id">
+                    <div class="nf-user-main">
+                        <button class="nf-link-btn nf-user-name" @onclick="() => ToggleActivityAsync(u.Id)">
+                            <strong>@u.FullName</strong>
+                        </button>
+                        <span class="nf-muted">@u.Email</span>
+                        <span class="nf-muted">@u.BookingCount booking@(u.BookingCount == 1 ? "" : "s") · @u.TicketCount ticket@(u.TicketCount == 1 ? "" : "s")</span>
+                    </div>
+
+                    <div>
+                        <select class="nf-input nf-role-select" value="@u.Role"
+                                @onchange="e => ChangeRoleAsync(u, e.Value?.ToString())">
+                            @foreach (var r in Enum.GetValues<UserRole>())
+                            {
+                                <option value="@r">@r</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div>
+                        <span class="nf-badge @(u.IsActive ? "avail-available" : "avail-busy")">
+                            @(u.IsActive ? "Active" : "Deactivated")
+                        </span>
+                    </div>
+
+                    <div class="nf-user-presence">
+                        <span class="nf-presence @(u.IsOnline ? "online" : "offline")"></span>
+                        <span class="nf-muted">@PresenceLabel(u)</span>
+                    </div>
+
+                    <div class="nf-user-actions">
+                        <button class="nf-link-btn" @onclick="() => ToggleActiveAsync(u)">
+                            @(u.IsActive ? "Deactivate" : "Activate")
+                        </button>
+                        <button class="nf-link-btn" @onclick="() => ToggleResetAsync(u.Id)">Reset password</button>
+                    </div>
+
+                    @if (_resettingId == u.Id)
+                    {
+                        <div class="nf-user-reset">
+                            <input class="nf-input" type="text" placeholder="New password (min 8 chars)" @bind="_newPassword" />
+                            <button class="nf-cta" @onclick="() => ResetPasswordAsync(u.Id)" disabled="@(_newPassword.Length < 8)">Set password</button>
+                            @if (_resetDone == u.Id)
+                            {
+                                <span class="nf-success">Password updated ✓</span>
+                            }
+                        </div>
+                    }
+
+                    @if (_expandedId == u.Id)
+                    {
+                        <div class="nf-user-activity">
+                            <div>
+                                <h4>Bookings</h4>
+                                @if (_activityBookings.Count == 0)
+                                {
+                                    <p class="nf-muted">No bookings.</p>
+                                }
+                                else
+                                {
+                                    <ul class="nf-activity-list">
+                                        @foreach (var b in _activityBookings)
+                                        {
+                                            <li><a href="bookings/@b.Id">@b.ProviderBusinessName — @b.ServiceDescription</a> <span class="nf-muted">(@b.Status)</span></li>
+                                        }
+                                    </ul>
+                                }
+                            </div>
+                            <div>
+                                <h4>Tickets</h4>
+                                @if (_activityTickets.Count == 0)
+                                {
+                                    <p class="nf-muted">No tickets.</p>
+                                }
+                                else
+                                {
+                                    <ul class="nf-activity-list">
+                                        @foreach (var t in _activityTickets)
+                                        {
+                                            <li><a href="support/@t.Id">@t.Subject</a> <span class="nf-muted">(@t.Status)</span></li>
+                                        }
+                                    </ul>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </section>
+}
+
+@code {
+    private List<AdminUserDto> _users = new();
+    private bool _loading = true;
+
+    private Guid? _resettingId;
+    private Guid? _resetDone;
+    private string _newPassword = string.Empty;
+
+    private Guid? _expandedId;
+    private List<JobRequestDto> _activityBookings = new();
+    private List<SupportTicketDto> _activityTickets = new();
+
+    private PeriodicTimer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _ = PollAsync();
+    }
+
+    private async Task PollAsync()
+    {
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+        try
+        {
+            while (await _timer.WaitForNextTickAsync())
+                await InvokeAsync(LoadAsync);
+        }
+        catch (OperationCanceledException) { /* disposed */ }
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = _users.Count == 0;
+        _users = await Api.GetUsersAsync();
+        _loading = false;
+        StateHasChanged();
+    }
+
+    private async Task ChangeRoleAsync(AdminUserDto user, string? value)
+    {
+        if (!Enum.TryParse<UserRole>(value, out var role) || role == user.Role) return;
+        if (await Api.SetUserRoleAsync(user.Id, role)) await LoadAsync();
+    }
+
+    private async Task ToggleActiveAsync(AdminUserDto user)
+    {
+        if (await Api.SetUserActiveAsync(user.Id, !user.IsActive)) await LoadAsync();
+    }
+
+    private void ToggleResetAsync(Guid id)
+    {
+        _resettingId = _resettingId == id ? null : id;
+        _resetDone = null;
+        _newPassword = string.Empty;
+    }
+
+    private async Task ResetPasswordAsync(Guid id)
+    {
+        if (_newPassword.Length < 8) return;
+        if (await Api.ResetUserPasswordAsync(id, _newPassword))
+        {
+            _resetDone = id;
+            _newPassword = string.Empty;
+        }
+    }
+
+    private async Task ToggleActivityAsync(Guid id)
+    {
+        if (_expandedId == id)
+        {
+            _expandedId = null;
+            return;
+        }
+        _expandedId = id;
+        _activityBookings = await Api.GetUserBookingsAsync(id);
+        _activityTickets = await Api.GetUserTicketsAsync(id);
+        StateHasChanged();
+    }
+
+    private static string PresenceLabel(AdminUserDto u)
+    {
+        if (u.IsOnline) return "Online now";
+        if (u.LastSeenUtc is not { } seen) return "Never seen";
+        var ago = DateTime.UtcNow - seen;
+        return ago switch
+        {
+            { TotalMinutes: < 1 } => "Last seen just now",
+            { TotalMinutes: < 60 } => $"Last seen {(int)ago.TotalMinutes}m ago",
+            { TotalHours: < 24 } => $"Last seen {(int)ago.TotalHours}h ago",
+            _ => $"Last seen {seen.ToLocalTime():d MMM}"
+        };
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

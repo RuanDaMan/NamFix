@@ -7,12 +7,39 @@
 <h1>Admin dashboard</h1>
 
 <section class="nf-admin-block">
+    <h2>Manage</h2>
+    <div class="nf-admin-links">
+        <a class="nf-admin-card" href="admin/users">
+            <span class="nf-admin-card-icon">👥</span>
+            <span><strong>Users</strong><span class="nf-muted">Manage accounts &amp; see who's online</span></span>
+        </a>
+        <a class="nf-admin-card" href="admin/tickets">
+            <span class="nf-admin-card-icon">🎫</span>
+            <span><strong>Support tickets</strong><span class="nf-muted">Reply to &amp; resolve requests</span></span>
+        </a>
+    </div>
+</section>
+
+<section class="nf-admin-block">
     <h2>Platform commission</h2>
     <p class="nf-muted">The percentage NamFix takes from each transaction (platform-wide default).</p>
     <div class="nf-pay-row">
         <input type="number" min="0" max="100" step="0.5" @bind="_commissionPercent" /> %
         <button class="nf-cta" @onclick="SaveCommissionAsync">Save rate</button>
         @if (_commissionSaved)
+        {
+            <span class="nf-success">Saved ✓</span>
+        }
+    </div>
+</section>
+
+<section class="nf-admin-block">
+    <h2>Booking policy</h2>
+    <p class="nf-muted">Cancellations made within this many hours of the confirmed start count as "late" against the canceller.</p>
+    <div class="nf-pay-row">
+        <input type="number" min="0" max="168" @bind="_cancellationWindowHours" /> hours
+        <button class="nf-cta" @onclick="SaveSettingsAsync">Save policy</button>
+        @if (_settingsSaved)
         {
             <span class="nf-success">Saved ✓</span>
         }
@@ -45,11 +72,24 @@
     private RevenueReportDto? _revenue;
     private decimal _commissionPercent = 10;
     private bool _commissionSaved;
+    private int _cancellationWindowHours = 24;
+    private bool _settingsSaved;
 
-    protected override async Task OnInitializedAsync() => _revenue = await Api.GetRevenueAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        _revenue = await Api.GetRevenueAsync();
+        var settings = await Api.GetPlatformSettingsAsync();
+        if (settings is not null) _cancellationWindowHours = settings.FreeCancellationWindowHours;
+    }
 
     private async Task SaveCommissionAsync()
     {
         _commissionSaved = await Api.SetPlatformCommissionAsync(_commissionPercent / 100m);
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        _settingsSaved = await Api.UpdatePlatformSettingsAsync(
+            new PlatformSettingsDto { FreeCancellationWindowHours = _cancellationWindowHours });
     }
 }

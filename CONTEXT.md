@@ -176,39 +176,58 @@ nesting), e.g. `NAMFIX_Jwt__SigningKey`.
 
 ---
 
-## 9. Bookings (negotiated jobs) + realtime
+## 9. Job requests (matching → booking) + realtime
 
-A **Booking** is the negotiated job between a client and a provider, and the **only** way money moves:
-a client can never pay an arbitrary amount — payment is locked to a booking's invoice.
+A **`JobRequest`** is the single entity spanning the whole job lifecycle — matching, quoting,
+booking, and payment. It is the **only** way money moves: a client can never pay an arbitrary
+amount, only a completed job's invoice. (This entity was formerly `Booking`/`Bookings`; a
+"booking" is just a job that has advanced past provider selection. Migration `up/0009` renames the
+tables in place; stored status ints are preserved.)
 
-- **Lifecycle** (`BookingStatus`): the proposed time bounces back and forth, with the status encoding
-  *whose turn it is to approve* — `PendingProvider` (client proposed, provider must respond) ⇄
-  `PendingClient` (provider proposed, client must respond) → `Scheduled` (time agreed) →
-  `Completed` (provider marked done + set an invoice amount) → `Paid`. Plus `Cancelled` (either party)
-  and `Declined` (provider). The whole state machine + authorization lives in
-  `BookingService` (`NamFix.Application`); the client never re-implements the rules.
-- **Payment**: `BookingService.PayAsync` is the only client payment path in the UI. It validates the
-  booking is `Completed`, then calls `TransactionService.CreateAsync` with the booking's own
-  `InvoiceAmount` (commission/hold-then-release as in §7) and links the resulting `TransactionId`.
-  The provider profile's old free-form "pay any amount" box was replaced by a **Request a booking**
-  form. (`TransactionsController.Create` still exists for admin/testing but is not surfaced.)
-- **Chat + location + invoice file**: each booking has a message thread (`BookingMessages`), an
-  optional client-shared location (text + coords), and a provider-uploaded invoice file stored in
-  the DB (`BookingAttachments`, served via `GET/POST api/bookings/{id}/invoice`).
-- **Notifications**: every booking event writes a `Notifications` row for the *other* party and is
-  pushed live. The nav shows a 🔔 bell with unread count + dropdown (`NotificationsBell`).
-- **Realtime (SignalR)**: `BookingHub` (`/hubs/notifications`, **authenticated** — JWT passed in the
-  query string, see `Program.cs` `OnMessageReceived`) puts each connection in a per-user group.
-  `IBookingRealtimeNotifier` (Shared.Contracts) decouples the service layer from SignalR;
-  `SignalRBookingNotifier` (API) is the implementation. The client `NotificationService` holds the
-  hub connection + notification state and raises `BookingChanged` / `MessagePosted` so open booking
-  views update live. This is separate from the `StatusHub` heartbeat in §Connectivity.
+- **Two entry points, one table** (`JobRequest.TargetMode`):
+  - *Direct* — the client requests a specific provider with a first proposed time
+    (`POST api/jobs/direct`), starting at `PendingProvider`.
+  - *Broadcast / "get matched"* — the client posts a job (category, town, description, urgency) and
+    the service fans it out to matching providers (`POST api/jobs`), starting at `Requested`. Urgent
+    jobs target emergency-flagged, currently-available providers. Each invited provider gets a
+    `JobRequestResponses` row (invitation → quote). The client accepts one quote
+    (`accept-quote/{responseId}`), which sets the chosen provider **in place** and transitions the
+    same row into the booking track.
+- **Lifecycle** (`JobStatus`): `Requested`/`Quoted` (pre-provider) → `PendingProvider` ⇄
+  `PendingClient` (time negotiation) → `Scheduled` → `InProgress` → `Completed` (invoice set) →
+  `Paid` → `Reviewed`. Terminal off-ramps: `Cancelled`, `Declined`, `NoShow`. The whole state
+  machine + authorization lives in `JobRequestService` (`IJobService`, `NamFix.Application`).
+- **Payment**: `JobRequestService.PayAsync` is the only client payment path. It validates the job is
+  `Completed`, then calls `TransactionService.CreateAsync` with the job's own `InvoiceAmount`
+  (commission/hold-then-release as in §7) and links the resulting `TransactionId`.
+- **Cancellation / no-show**: cancelling inside the admin-configured free window (default 24h before
+  `ConfirmedStartUtc`, stored in `dbo.PlatformSettings`) flags a late cancellation and increments the
+  canceller's counter (`Users`/`Providers.LateCancellationCount`). A no-show after the start time
+  increments the absent party's `NoShowCount`.
+- **Availability, rate cards, extended search**: providers publish weekly hours + time-off
+  (`ProviderAvailabilityRules`/`ProviderTimeOff`, `GET api/providers/{id}/availability`) and a rate
+  card (`ProviderRateCards`). Search gains price-range, years-experience, and response-time filters,
+  backed by denormalized `Providers.StartingPrice`/`AvgResponseMinutes`.
+- **Chat + location + invoice file**: each job has a message thread (`JobRequestMessages`), an
+  optional client-shared location, and provider invoice / job-photo attachments
+  (`JobRequestAttachments`, `Kind` discriminates), served via `GET/POST api/jobs/{id}/invoice`.
+- **Notifications**: every job event writes a `Notifications` row (`JobRequestId`) for the affected
+  party and is pushed live. The nav shows a 🔔 bell with unread count + dropdown (`NotificationsBell`).
+- **Realtime (SignalR)**: `NotificationHub` (`/hubs/notifications`, **authenticated** — JWT in the
+  query string, see `Program.cs` `OnMessageReceived`) puts each connection in a per-user group and is
+  shared by jobs + support. `IJobRealtimeNotifier` (Shared.Contracts) decouples the service layer
+  from SignalR; `SignalRJobNotifier` (API) implements it. The client `NotificationService` raises
+  `BookingChanged` (wire event `JobChanged`) / `MessagePosted` so open views update live. Separate
+  from the `StatusHub` heartbeat in §Connectivity.
 
 ## 10. Vertical slice implemented
 
 Auth (register/login/refresh, JWT) · Provider CRUD (self-managed profile, towns, tags, map pin,
-availability, admin approval) · Full-text + filter + "near me" search · Leaflet map display ·
-Reviews (verified flag) · Transaction with commission calculation + earnings/revenue reporting ·
-**Bookings: time negotiation, location share, invoice upload, booking-locked payment, in-booking
-chat, and live notifications over SignalR** · Dark/light theme (dark default) · WhatsApp deep-link
-contact. Payment gateway and MAUI app are abstracted/stubbed for later.
+availability, rate card, years experience, admin approval) · Full-text + filter (price / experience /
+response-time) + "near me" search · Leaflet map display · Reviews (verified flag) · Transaction with
+commission calculation + earnings/revenue reporting · **Job requests: get-matched broadcast + urgent,
+provider quoting, quote acceptance, time negotiation, start/complete, location share, invoice upload,
+booking-locked payment, review, cancellation/no-show accounting, provider availability calendar,
+in-job chat, and live notifications over SignalR** · Admin platform settings (cancellation window) ·
+Dark/light theme (dark default) · WhatsApp deep-link contact. Payment gateway and MAUI app are
+abstracted/stubbed for later.

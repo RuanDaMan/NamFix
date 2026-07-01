@@ -1,0 +1,293 @@
+@page "/support/{Id:guid}"
+@attribute [Authorize]
+@implements IDisposable
+@inject NamFixApiClient Api
+@inject NotificationService Notifications
+@inject IJSRuntime JS
+
+<PageTitle>Ticket — NamFix</PageTitle>
+
+@if (_loading)
+{
+    <p class="nf-muted">Loading…</p>
+}
+else if (_ticket is null)
+{
+    <p class="nf-muted">Ticket not found.</p>
+}
+else
+{
+    <div class="nf-booking">
+        <div class="nf-profile-head">
+            <div>
+                <h1>@_ticket.Subject</h1>
+                <p class="nf-muted">
+                    @_ticket.Category · opened @_ticket.CreatedAtUtc.ToLocalTime().ToString("d MMM yyyy")
+                    @if (_isAdmin)
+                    {
+                        <span> · @_ticket.RequesterName (@_ticket.RequesterEmail)</span>
+                    }
+                </p>
+            </div>
+            <div class="nf-ticket-badges">
+                <span class="nf-badge @PriorityClass(_ticket.Priority)">@_ticket.Priority</span>
+                <span class="nf-badge @StatusClass(_ticket.Status)">@StatusLabel(_ticket.Status)</span>
+            </div>
+        </div>
+
+        @if (_isAdmin)
+        {
+            <section class="nf-booking-section">
+                <h3>Manage ticket</h3>
+                <div class="nf-pay-row">
+                    <div>
+                        <label class="nf-field-label">Priority</label>
+                        <select class="nf-input" @bind="_editPriority">
+                            @foreach (var p in Enum.GetValues<SupportPriority>())
+                            {
+                                <option value="@p">@p</option>
+                            }
+                        </select>
+                    </div>
+                    <div>
+                        <label class="nf-field-label">Status</label>
+                        <select class="nf-input" @bind="_editStatus">
+                            @foreach (var s in Enum.GetValues<TicketStatus>())
+                            {
+                                <option value="@s">@StatusLabel(s)</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="nf-booking-actions">
+                    <button class="nf-link-btn" @onclick="SaveTriageAsync">Save changes</button>
+                    @if (_ticket.Status is not (TicketStatus.Resolved or TicketStatus.Closed))
+                    {
+                        <button class="nf-cta" @onclick="() => SetStatusAsync(TicketStatus.Resolved)">✓ Resolve &amp; notify</button>
+                    }
+                    @if (_ticket.Status != TicketStatus.Closed)
+                    {
+                        <button class="nf-link-btn" @onclick="() => SetStatusAsync(TicketStatus.Closed)">Close ticket</button>
+                    }
+                </div>
+            </section>
+        }
+        else if (_ticket.Status is TicketStatus.Resolved or TicketStatus.Closed)
+        {
+            <p class="nf-success">This ticket has been @(_ticket.Status.ToString().ToLower()). Reply below to reopen it if you still need help.</p>
+        }
+
+        @* ---- Conversation ---- *@
+        <section class="nf-booking-section">
+            <h3>Conversation</h3>
+            <div class="nf-chat">
+                @foreach (var m in _messages)
+                {
+                    <div class="nf-chat-msg @ChatClass(m)" @key="m.Id">
+                        <span class="nf-chat-meta">
+                            @(m.IsSystem ? "System" : m.SenderUserId == _userId ? "You" : m.SenderName)
+                            @(m.SenderIsAdmin && !m.IsSystem ? " · Support" : "")
+                            · @m.CreatedAtUtc.ToLocalTime().ToString("g")
+                        </span>
+                        <span class="nf-chat-body">@m.Body</span>
+                        @if (m.Attachments.Count > 0)
+                        {
+                            <span class="nf-chat-attachments">
+                                @foreach (var a in m.Attachments)
+                                {
+                                    <button class="nf-link-btn nf-attach-chip" @onclick="() => DownloadAsync(a)">
+                                        📎 @a.FileName <span class="nf-muted">(@Size(a.SizeBytes))</span>
+                                    </button>
+                                }
+                            </span>
+                        }
+                    </div>
+                }
+            </div>
+
+            @if (_ticket.Status != TicketStatus.Closed)
+            {
+                @if (_pending.Count > 0)
+                {
+                    <ul class="nf-attach-list">
+                        @foreach (var f in _pending)
+                        {
+                            <li>📄 @f.Name <span class="nf-muted">(@Size(f.Size))</span></li>
+                        }
+                    </ul>
+                }
+                <div class="nf-pay-row nf-chat-input">
+                    <input placeholder="Type a reply…" @bind="_draft" @bind:event="oninput" @onkeydown="OnKeyDown" />
+                    <label class="nf-link-btn nf-file-btn">
+                        📎
+                        <InputFile OnChange="OnFilesSelected" multiple style="display:none" />
+                    </label>
+                    <button class="nf-cta" @onclick="SendAsync" disabled="@(_sending || (string.IsNullOrWhiteSpace(_draft) && _pending.Count == 0))">Send</button>
+                </div>
+            }
+            else
+            {
+                <p class="nf-muted">This ticket is closed.</p>
+            }
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private SupportTicketDto? _ticket;
+    private List<SupportMessageDto> _messages = new();
+    private bool _loading = true;
+    private bool _sending;
+    private Guid _userId;
+    private bool _isAdmin;
+
+    private string _draft = string.Empty;
+    private readonly List<IBrowserFile> _pending = new();
+    private TicketStatus _editStatus;
+    private SupportPriority _editPriority;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = AuthState is null ? null : (await AuthState).User;
+        _userId = Guid.TryParse(user?.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : Guid.Empty;
+        _isAdmin = user?.IsInRole("Admin") ?? false;
+        Notifications.TicketChanged += OnTicketChanged;
+        Notifications.SupportMessagePosted += OnMessagePosted;
+    }
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _ticket = await Api.GetTicketAsync(Id);
+        _messages = _ticket is null ? new() : await Api.GetTicketMessagesAsync(Id);
+        if (_ticket is not null)
+        {
+            _editStatus = _ticket.Status;
+            _editPriority = _ticket.Priority;
+        }
+        _loading = false;
+        StateHasChanged();
+    }
+
+    private void OnTicketChanged(Guid ticketId)
+    {
+        if (ticketId == Id) _ = InvokeAsync(LoadAsync);
+    }
+
+    private void OnMessagePosted(Guid ticketId, SupportMessageDto message)
+    {
+        if (ticketId != Id) return;
+        _ = InvokeAsync(() =>
+        {
+            if (_messages.All(m => m.Id != message.Id))
+            {
+                _messages.Add(message);
+                StateHasChanged();
+            }
+        });
+    }
+
+    private void OnFilesSelected(InputFileChangeEventArgs e)
+    {
+        _pending.Clear();
+        _pending.AddRange(e.GetMultipleFiles(maximumFileCount: 10));
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SendAsync();
+    }
+
+    private async Task SendAsync()
+    {
+        var body = _draft.Trim();
+        if (body.Length == 0 && _pending.Count == 0) return;
+        _sending = true;
+        try
+        {
+            // A body is required by the API; if the user only attached files, send a short stand-in.
+            var sent = await Api.PostTicketMessageAsync(Id, body.Length == 0 ? "(see attachment)" : body);
+            if (sent is null) return;
+            _draft = string.Empty;
+
+            foreach (var file in _pending)
+            {
+                using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+                using var ms = new MemoryStream();
+                await stream.CopyToAsync(ms);
+                ms.Position = 0;
+                await Api.UploadTicketAttachmentAsync(Id, sent.Id, ms, file.Name, file.ContentType);
+            }
+            _pending.Clear();
+            await LoadAsync();
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+
+    private async Task SaveTriageAsync()
+    {
+        var updated = await Api.UpdateTicketAsync(Id, new UpdateTicketRequest
+        {
+            Status = _editStatus,
+            Priority = _editPriority
+        });
+        if (updated is not null) await LoadAsync();
+    }
+
+    private async Task SetStatusAsync(TicketStatus status)
+    {
+        var updated = await Api.UpdateTicketAsync(Id, new UpdateTicketRequest { Status = status });
+        if (updated is not null) await LoadAsync();
+    }
+
+    private async Task DownloadAsync(SupportAttachmentDto a)
+    {
+        var dl = await Api.DownloadTicketAttachmentAsync(a.Id);
+        if (dl is not null)
+            await JS.InvokeVoidAsync("namfix.downloadFile", dl.FileName, dl.ContentType, Convert.ToBase64String(dl.Content));
+    }
+
+    private string ChatClass(SupportMessageDto m) =>
+        m.IsSystem ? "system" : m.SenderUserId == _userId ? "mine" : "";
+
+    private static string Size(long bytes) =>
+        bytes >= 1024 * 1024 ? $"{bytes / 1024d / 1024d:0.#} MB" : $"{Math.Max(1, bytes / 1024)} KB";
+
+    private static string StatusLabel(TicketStatus s) => s switch
+    {
+        TicketStatus.Open => "Open",
+        TicketStatus.AwaitingUser => "Awaiting user",
+        TicketStatus.Resolved => "Resolved",
+        TicketStatus.Closed => "Closed",
+        _ => s.ToString()
+    };
+
+    private static string StatusClass(TicketStatus s) => s switch
+    {
+        TicketStatus.Open => "emergency",
+        TicketStatus.AwaitingUser => "verified",
+        TicketStatus.Resolved or TicketStatus.Closed => "avail-available",
+        _ => "verified"
+    };
+
+    private static string PriorityClass(SupportPriority p) => p switch
+    {
+        SupportPriority.Urgent or SupportPriority.High => "avail-busy",
+        SupportPriority.Low => "avail-available",
+        _ => "verified"
+    };
+
+    public void Dispose()
+    {
+        Notifications.TicketChanged -= OnTicketChanged;
+        Notifications.SupportMessagePosted -= OnMessagePosted;
+    }
+}

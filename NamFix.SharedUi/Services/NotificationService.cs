@@ -40,11 +40,17 @@ public sealed class NotificationService : IAsyncDisposable
     /// <summary>Raised when the notification list or unread count changes (marshal to UI thread).</summary>
     public event Action? NotificationsChanged;
 
-    /// <summary>Raised when a booking the user participates in changed; carries the booking id.</summary>
+    /// <summary>Raised when a job the user participates in changed; carries the job id.</summary>
     public event Action<Guid>? BookingChanged;
 
-    /// <summary>Raised when a chat message is posted to a booking the user participates in.</summary>
-    public event Action<Guid, BookingMessageDto>? MessagePosted;
+    /// <summary>Raised when a chat message is posted to a job the user participates in.</summary>
+    public event Action<Guid, JobMessageDto>? MessagePosted;
+
+    /// <summary>Raised when a support ticket the user participates in changed; carries the ticket id.</summary>
+    public event Action<Guid>? TicketChanged;
+
+    /// <summary>Raised when a message is posted to a support ticket the user participates in.</summary>
+    public event Action<Guid, SupportMessageDto>? SupportMessagePosted;
 
     /// <summary>
     /// Connects the hub (if not already) and loads the initial notification list. Idempotent — safe
@@ -67,8 +73,10 @@ public sealed class NotificationService : IAsyncDisposable
                 Notifications = new[] { n }.Concat(Notifications).Take(30).ToList();
                 NotificationsChanged?.Invoke();
             });
-            _connection.On<Guid>("BookingChanged", id => BookingChanged?.Invoke(id));
-            _connection.On<Guid, BookingMessageDto>("MessagePosted", (id, m) => MessagePosted?.Invoke(id, m));
+            _connection.On<Guid>("JobChanged", id => BookingChanged?.Invoke(id));
+            _connection.On<Guid, JobMessageDto>("MessagePosted", (id, m) => MessagePosted?.Invoke(id, m));
+            _connection.On<Guid>("TicketChanged", id => TicketChanged?.Invoke(id));
+            _connection.On<Guid, SupportMessageDto>("SupportMessagePosted", (id, m) => SupportMessagePosted?.Invoke(id, m));
 
             try
             {

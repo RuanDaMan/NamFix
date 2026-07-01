@@ -1,5 +1,7 @@
 using Dapper;
 using NamFix.Shared.Domain;
+using NamFix.Shared.Dtos;
+using NamFix.Shared.Enums;
 
 namespace NamFix.Application.Data.Repositories;
 
@@ -11,6 +13,21 @@ public interface IUserRepository
     Task AddRefreshTokenAsync(RefreshToken token);
     Task<RefreshToken?> GetRefreshTokenAsync(string token);
     Task RevokeRefreshTokenAsync(Guid id);
+
+    // ---- Admin user management + presence ----
+
+    /// <summary>All users projected for the admin page (with booking/ticket counts). IsOnline is filled in by the service.</summary>
+    Task<List<AdminUserDto>> ListAdminUsersAsync();
+
+    /// <summary>Ids of all Admin-role users — used to fan out ticket notifications to the support team.</summary>
+    Task<List<Guid>> ListAdminIdsAsync();
+
+    Task SetActiveAsync(Guid id, bool isActive);
+    Task SetRoleAsync(Guid id, UserRole role);
+    Task UpdatePasswordHashAsync(Guid id, string passwordHash);
+    Task UpdateLastSeenAsync(Guid id, DateTime utc);
+    Task IncrementNoShowAsync(Guid id);
+    Task IncrementLateCancellationAsync(Guid id);
 }
 
 public sealed class UserRepository : IUserRepository
@@ -64,5 +81,68 @@ public sealed class UserRepository : IUserRepository
         using var conn = await _db.CreateOpenConnectionAsync();
         await conn.ExecuteAsync(
             "UPDATE dbo.RefreshTokens SET RevokedAtUtc = SYSUTCDATETIME() WHERE Id = @id", new { id });
+    }
+
+    public async Task<List<AdminUserDto>> ListAdminUsersAsync()
+    {
+        using var conn = await _db.CreateOpenConnectionAsync();
+        return (await conn.QueryAsync<AdminUserDto>(
+            """
+            SELECT u.Id, u.Email, u.FullName, u.PhoneNumber, u.Role, u.IsActive, u.CreatedAtUtc, u.LastSeenUtc,
+                   (SELECT COUNT(*) FROM dbo.JobRequests j WHERE j.ClientUserId = u.Id OR j.ProviderUserId = u.Id) AS BookingCount,
+                   (SELECT COUNT(*) FROM dbo.SupportTickets t WHERE t.RequesterUserId = u.Id) AS TicketCount
+            FROM dbo.Users u
+            ORDER BY u.CreatedAtUtc DESC
+            """)).AsList();
+    }
+
+    public async Task<List<Guid>> ListAdminIdsAsync()
+    {
+        using var conn = await _db.CreateOpenConnectionAsync();
+        return (await conn.QueryAsync<Guid>(
+            "SELECT Id FROM dbo.Users WHERE Role = @role AND IsActive = 1",
+            new { role = (int)UserRole.Admin })).AsList();
+    }
+
+    public async Task SetActiveAsync(Guid id, bool isActive)
+    {
+        using var conn = await _db.CreateOpenConnectionAsync();
+        await conn.ExecuteAsync(
+            "UPDATE dbo.Users SET IsActive = @isActive WHERE Id = @id", new { id, isActive });
+    }
+
+    public async Task SetRoleAsync(Guid id, UserRole role)
+    {
+        using var conn = await _db.CreateOpenConnectionAsync();
+        await conn.ExecuteAsync(
+            "UPDATE dbo.Users SET Role = @role WHERE Id = @id", new { id, role = (int)role });
+    }
+
+    public async Task UpdatePasswordHashAsync(Guid id, string passwordHash)
+    {
+        using var conn = await _db.CreateOpenConnectionAsync();
+        await conn.ExecuteAsync(
+            "UPDATE dbo.Users SET PasswordHash = @passwordHash WHERE Id = @id", new { id, passwordHash });
+    }
+
+    public async Task UpdateLastSeenAsync(Guid id, DateTime utc)
+    {
+        using var conn = await _db.CreateOpenConnectionAsync();
+        await conn.ExecuteAsync(
+            "UPDATE dbo.Users SET LastSeenUtc = @utc WHERE Id = @id", new { id, utc });
+    }
+
+    public async Task IncrementNoShowAsync(Guid id)
+    {
+        using var conn = await _db.CreateOpenConnectionAsync();
+        await conn.ExecuteAsync(
+            "UPDATE dbo.Users SET NoShowCount = NoShowCount + 1 WHERE Id = @id", new { id });
+    }
+
+    public async Task IncrementLateCancellationAsync(Guid id)
+    {
+        using var conn = await _db.CreateOpenConnectionAsync();
+        await conn.ExecuteAsync(
+            "UPDATE dbo.Users SET LateCancellationCount = LateCancellationCount + 1 WHERE Id = @id", new { id });
     }
 }

@@ -34,6 +34,16 @@
 
     <label class="nf-check"><input type="checkbox" @bind="EmergencyOnly" @bind:after="SearchAsync" /> 24/7 Emergency</label>
     <label class="nf-check"><input type="checkbox" @bind="AvailableNowOnly" @bind:after="SearchAsync" /> Available now</label>
+
+    <input class="nf-filter-num" type="number" min="0" placeholder="Min N$" @bind="_request.MinPrice" @bind:after="SearchAsync" />
+    <input class="nf-filter-num" type="number" min="0" placeholder="Max N$" @bind="_request.MaxPrice" @bind:after="SearchAsync" />
+    <input class="nf-filter-num" type="number" min="0" placeholder="Min yrs exp" @bind="_request.MinYearsExperience" @bind:after="SearchAsync" />
+    <select @bind="_request.MaxResponseMinutes" @bind:after="SearchAsync">
+        <option value="">Any response time</option>
+        <option value="30">Replies ≤ 30 min</option>
+        <option value="60">Replies ≤ 1 hr</option>
+        <option value="240">Replies ≤ 4 hr</option>
+    </select>
     <button class="nf-link-btn @(_nearMe ? "is-active" : "")" @onclick="ToggleNearMeAsync"
             aria-pressed="@_nearMe">📍 Near me@(_nearMe ? " ✕" : "")</button>
     @if (_nearMe)
