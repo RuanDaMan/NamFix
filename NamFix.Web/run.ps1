@@ -34,6 +34,40 @@ function Get-LanIPv4 {
     return $ip
 }
 
+# Recursively kill a process and all of its descendants. dotnet watch spawns a
+# child `dotnet run`, which spawns the actual dev server — killing only the top
+# process leaves that grandchild orphaned (the zombie holding the port).
+function Stop-ProcessTree {
+    param([int]$ParentId)
+    Get-CimInstance Win32_Process -Filter "ParentProcessId = $ParentId" -ErrorAction SilentlyContinue |
+        ForEach-Object { Stop-ProcessTree -ParentId $_.ProcessId }
+    Stop-Process -Id $ParentId -Force -ErrorAction SilentlyContinue
+}
+
+# Backstop: kill whatever is still listening on the port after the tree is gone
+# (catches any orphan whose parent chain was already broken).
+function Stop-PortListeners {
+    param([int]$Port)
+    Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique |
+        ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+}
+
+# Start dotnet as a tracked child and wait on it. On Ctrl+C, PowerShell runs the
+# finally block, which tears down the whole process tree so nothing is left behind.
+function Start-Dotnet {
+    param([string[]]$DotnetArgs, [int]$Port)
+    $proc = Start-Process -FilePath 'dotnet' -ArgumentList $DotnetArgs -PassThru -NoNewWindow
+    try {
+        Wait-Process -Id $proc.Id
+    }
+    finally {
+        Write-Host "`nShutting down — stopping dotnet watch and child processes..." -ForegroundColor Yellow
+        Stop-ProcessTree -ParentId $proc.Id
+        Stop-PortListeners -Port $Port
+    }
+}
+
 if ($live) {
     $ip = Get-LanIPv4
     if (-not $ip) { throw "Could not determine this PC's LAN IP address. Connect to a network and retry." }
@@ -47,9 +81,9 @@ if ($live) {
     Write-Host "  Open this on your phone's browser: http://${ip}:7213" -ForegroundColor Green
     Write-Host "  (Make sure the API is running:      ..\NamFix.Api\run.ps1 live)" -ForegroundColor DarkGray
     Write-Host "  (Windows Firewall may prompt to allow access — choose Private networks.)" -ForegroundColor DarkGray
-    dotnet run --no-launch-profile
+    Start-Dotnet -DotnetArgs @('watch', 'run', '--no-launch-profile') -Port 7213
 }
 else {
     Write-Host "Starting NamFix client on https://localhost:7213 (API expected at https://localhost:7111) ..." -ForegroundColor Cyan
-    dotnet run --launch-profile https
+    Start-Dotnet -DotnetArgs @('watch', 'run', '--launch-profile', 'https') -Port 7213
 }

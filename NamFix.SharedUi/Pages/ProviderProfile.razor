@@ -61,7 +61,7 @@ else
                     payments always go through a booking, never a random amount.</p>
                 <div class="nf-booking-propose">
                     <label>What do you need done?</label>
-                    <input placeholder="e.g. Fix a leaking kitchen tap" @bind="_bookingDescription" />
+                    <input placeholder="e.g. Fix a leaking kitchen tap" @bind="_bookingDescription" @bind:event="oninput" />
                     <label>Preferred time</label>
                     <div class="nf-pay-row">
                         <input type="datetime-local" @bind="_bookingTime" />

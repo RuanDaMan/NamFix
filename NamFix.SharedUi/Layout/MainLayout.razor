@@ -1,12 +1,29 @@
 @inherits LayoutComponentBase
 @implements IDisposable
+@using Microsoft.Extensions.Logging
 @inject ConnectivityService Connectivity
 @inject ApiErrorNotifier Errors
+@inject NavigationManager Nav
+@inject ILogger<MainLayout> Logger
 
 <div class="nf-app">
     <NavMenu />
     <main class="nf-main">
-        @Body
+        <LoggingErrorBoundary @ref="_errorBoundary">
+            <ChildContent>
+                @Body
+            </ChildContent>
+            <ErrorContent>
+                <div class="nf-error-card">
+                    <h2>Something went wrong</h2>
+                    <p>An unexpected error occurred on this page. The details have been logged. You can try again, or head back to search.</p>
+                    <div class="nf-error-actions">
+                        <button class="nf-cta" @onclick="Recover">Try again</button>
+                        <a class="nf-link-btn" href="">Back to search</a>
+                    </div>
+                </div>
+            </ErrorContent>
+        </LoggingErrorBoundary>
     </main>
     <footer class="nf-footer">
         <span>NamFix — find trusted tradespeople across Namibia</span>
@@ -38,14 +55,35 @@
 
 @code {
     private readonly List<Toast> _toasts = new();
+    private LoggingErrorBoundary? _errorBoundary;
 
     protected override void OnInitialized()
     {
         Errors.ErrorReported += OnErrorReported;
         Connectivity.StateChanged += OnConnectivityChangedAsync;
-        // Fire-and-forget: the connect/retry loop runs for the app's lifetime and never returns while offline.
-        _ = Connectivity.StartAsync();
+        // Clear a caught error automatically when the user navigates away from the failed page.
+        Nav.LocationChanged += OnLocationChanged;
+        // Fire-and-forget: the connect/retry loop runs for the app's lifetime and never returns while
+        // offline. Guarded so an unobserved fault can't surface as a browser "unhandledrejection"
+        // (which would trip Blazor's error banner even though the app keeps running).
+        _ = StartConnectivitySafeAsync();
     }
+
+    private async Task StartConnectivitySafeAsync()
+    {
+        try
+        {
+            await Connectivity.StartAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Connectivity startup faulted unexpectedly.");
+        }
+    }
+
+    private void Recover() => _errorBoundary?.Recover();
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => _errorBoundary?.Recover();
 
     private Task OnConnectivityChangedAsync() => InvokeAsync(StateHasChanged);
 
@@ -73,6 +111,7 @@
     {
         Errors.ErrorReported -= OnErrorReported;
         Connectivity.StateChanged -= OnConnectivityChangedAsync;
+        Nav.LocationChanged -= OnLocationChanged;
     }
 
     private sealed record Toast(string Message)

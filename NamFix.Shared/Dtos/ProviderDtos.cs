@@ -84,6 +84,12 @@ public record ProviderSearchRequest
     public double? NearLatitude { get; set; }
     public double? NearLongitude { get; set; }
 
+    /// <summary>
+    /// Max distance (km) from the "near me" point. Only applied when <see cref="NearLatitude"/>/
+    /// <see cref="NearLongitude"/> are supplied. Defaults to 60 km.
+    /// </summary>
+    public double RadiusKm { get; set; } = 60;
+
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 20;
 }

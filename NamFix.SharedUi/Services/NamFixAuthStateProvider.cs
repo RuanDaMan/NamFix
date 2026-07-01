@@ -24,7 +24,12 @@ public sealed class NamFixAuthStateProvider : AuthenticationStateProvider
         try
         {
             var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
-            if (jwt.ValidTo < DateTime.UtcNow) return Anonymous;
+            if (jwt.ValidTo < DateTime.UtcNow)
+            {
+                // Purge the stale token so it isn't resent on later requests (avoids server-side 401 noise).
+                await _tokens.ClearAsync();
+                return Anonymous;
+            }
 
             // Normalise role + name claims so [Authorize(Roles=...)] and context.User work in components.
             var claims = jwt.Claims.Select(c => c.Type switch

@@ -199,6 +199,14 @@ public sealed class ProviderRepository : IProviderRepository
         {
             p.Add("lat", r.NearLatitude);
             p.Add("lng", r.NearLongitude);
+
+            // "Near me" is bounded to a radius so distant providers aren't returned. A provider with no
+            // coordinates can't be measured, so it's excluded when searching by location.
+            if (r.RadiusKm > 0)
+            {
+                where.Append($" AND pr.Latitude IS NOT NULL AND pr.Longitude IS NOT NULL AND {distanceExpr} <= @radiusKm");
+                p.Add("radiusKm", r.RadiusKm);
+            }
         }
 
         // Order: nearest first when geo given, otherwise verified + rating.

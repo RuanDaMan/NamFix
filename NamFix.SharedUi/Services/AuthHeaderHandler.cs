@@ -1,3 +1,4 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Headers;
 using NamFix.Shared.Contracts;
 
@@ -16,8 +17,27 @@ public sealed class AuthHeaderHandler : DelegatingHandler
     {
         var token = await _tokens.GetAccessTokenAsync();
         if (!string.IsNullOrWhiteSpace(token))
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        {
+            if (IsExpired(token))
+                // An expired token would only fail server-side validation (noisy 401s) — drop it
+                // silently so the request goes out anonymous instead.
+                await _tokens.ClearAsync();
+            else
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
 
         return await base.SendAsync(request, ct);
+    }
+
+    private static bool IsExpired(string token)
+    {
+        try
+        {
+            return new JwtSecurityTokenHandler().ReadJwtToken(token).ValidTo < DateTime.UtcNow;
+        }
+        catch
+        {
+            return true; // unreadable/malformed token — treat as unusable
+        }
     }
 }

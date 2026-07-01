@@ -83,12 +83,6 @@ else
             @if (!string.IsNullOrWhiteSpace(_booking.LocationText))
             {
                 <p>📍 @_booking.LocationText</p>
-                @if (_booking.LocationLat is not null && _booking.LocationLng is not null)
-                {
-                    <MapView Center="new GeoPoint(_booking.LocationLat.Value, _booking.LocationLng.Value)"
-                             Zoom="15" Height="220px"
-                             Markers="new[]{ new MapMarker(new GeoPoint(_booking.LocationLat.Value, _booking.LocationLng.Value), _booking.LocationText!) }" />
-                }
             }
             else
             {
@@ -100,14 +94,45 @@ else
                 <div class="nf-booking-propose">
                     <input placeholder="Address or directions" @bind="_locationText" />
                     <div class="nf-booking-actions">
-                        <button class="nf-link-btn" @onclick="UseMyLocationAsync">📍 Use my current location</button>
+                        <button class="nf-link-btn" @onclick="UseMyLocationAsync" disabled="@_locating">
+                            @if (_locating)
+                            {
+                                <span class="nf-inline-spinner"></span> <span>Locating…</span>
+                            }
+                            else
+                            {
+                                <span>📍 Use my current location</span>
+                            }
+                        </button>
+                        <button class="nf-link-btn" @onclick="() => _showMap = !_showMap">
+                            @(_showMap ? "Hide map" : "📌 Pin on map")
+                        </button>
                         <button class="nf-cta" @onclick="SaveLocationAsync" disabled="@string.IsNullOrWhiteSpace(_locationText)">Share location</button>
                     </div>
                     @if (_locLat is not null)
                     {
                         <p class="nf-muted">Pinned: @_locLat?.ToString("0.0000"), @_locLng?.ToString("0.0000")</p>
                     }
+                    @if (_showMap)
+                    {
+                        <p class="nf-muted">Tap the map to move the pin, or use the buttons above.</p>
+                        <MapView PinMode="true" OnPinned="OnMapPinned"
+                                 Center="PinCenter" Zoom="14" Height="260px"
+                                 Markers="PinMarkers" />
+                    }
                 </div>
+            }
+            else if (_booking.LocationLat is not null && _booking.LocationLng is not null)
+            {
+                <button class="nf-link-btn" @onclick="() => _showMap = !_showMap">
+                    @(_showMap ? "Hide map" : "🗺️ Show map")
+                </button>
+                @if (_showMap)
+                {
+                    <MapView Center="new GeoPoint(_booking.LocationLat.Value, _booking.LocationLng.Value)"
+                             Zoom="15" Height="220px"
+                             Markers="new[]{ new MapMarker(new GeoPoint(_booking.LocationLat.Value, _booking.LocationLng.Value), _booking.LocationText!) }" />
+                }
             }
         </section>
 
@@ -206,6 +231,9 @@ else
     private string? _locationText;
     private double? _locLat;
     private double? _locLng;
+    private bool _locating;
+    private bool _showMap;
+    private GeoPoint? _mapCenter;
     private decimal _invoiceAmount;
     private string? _invoiceNotes;
     private string? _invoiceFileName;
@@ -279,15 +307,54 @@ else
 
     private async Task UseMyLocationAsync()
     {
-        var point = await Geo.GetCurrentLocationAsync();
-        if (point is { } p)
+        _locating = true;
+        try
         {
-            _locLat = p.Latitude;
-            _locLng = p.Longitude;
-            if (string.IsNullOrWhiteSpace(_locationText))
-                _locationText = $"{p.Latitude:0.0000}, {p.Longitude:0.0000}";
+            var point = await Geo.GetCurrentLocationAsync();
+            if (point is { } p)
+            {
+                ApplyPin(p);
+                _mapCenter = p;   // pan the map to the located point
+                _showMap = true;  // reveal the map so the pin is visible
+            }
+        }
+        finally
+        {
+            _locating = false;
         }
     }
+
+    // A tap on the map moves the pin but doesn't recenter — the tapped point is already on-screen.
+    // This arrives via a JS-interop callback (off the render dispatcher), so marshal the re-render
+    // back onto it with InvokeAsync — a bare StateHasChanged() here wouldn't refresh the UI.
+    private async Task OnMapPinned(GeoPoint p)
+    {
+        ApplyPin(p);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void ApplyPin(GeoPoint p)
+    {
+        _locLat = p.Latitude;
+        _locLng = p.Longitude;
+        if (string.IsNullOrWhiteSpace(_locationText))
+            _locationText = $"{p.Latitude:0.0000}, {p.Longitude:0.0000}";
+    }
+
+    /// <summary>Stable center: located point → already-shared location → Windhoek. Not tied to each tap.</summary>
+    private GeoPoint PinCenter =>
+        _mapCenter
+        ?? (_booking?.LocationLat is { } blat && _booking.LocationLng is { } blng
+            ? new GeoPoint(blat, blng)
+            : new GeoPoint(-22.56, 17.08));
+
+    /// <summary>The single pin marker, driven by state (current pick, else the already-shared location).</summary>
+    private MapMarker[] PinMarkers =>
+        _locLat is { } lat && _locLng is { } lng
+            ? new[] { new MapMarker(new GeoPoint(lat, lng), "Job location") }
+            : _booking?.LocationLat is { } blat && _booking.LocationLng is { } blng
+                ? new[] { new MapMarker(new GeoPoint(blat, blng), "Job location") }
+                : Array.Empty<MapMarker>();
 
     private async Task SaveLocationAsync()
     {

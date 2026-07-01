@@ -95,6 +95,7 @@ body {
     display: flex; align-items: center; justify-content: space-between;
     flex-wrap: wrap; gap: .5rem;
     background: var(--nf-card); padding: .75rem 1rem; box-shadow: var(--nf-shadow);
+    position: sticky; top: 0; z-index: 900;
 }
 .nf-brand { font-size: 1.25rem; font-weight: 800; color: var(--nf-primary); text-decoration: none; }
 .nf-nav-links { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
@@ -124,6 +125,8 @@ body {
     border-radius: var(--nf-radius); cursor: pointer; color: var(--nf-text); text-decoration: none;
 }
 .nf-link-btn:hover { border-color: var(--nf-primary); color: var(--nf-primary); }
+.nf-link-btn.is-active { background: var(--nf-primary); border-color: var(--nf-primary); color: #fff; }
+.nf-link-btn.is-active:hover { color: #fff; opacity: .9; }
 
 /* Hero + search */
 .nf-hero { text-align: center; padding: 2rem 1rem 1rem; }
@@ -279,3 +282,20 @@ body {
 .nf-offline-card p { color: var(--nf-muted); margin: 0; }
 .nf-offline-spinner { width: 38px; height: 38px; margin: 0 auto; border: 4px solid var(--nf-border); border-top-color: var(--nf-primary); border-radius: 50%; animation: nf-spin 1s linear infinite; }
 @keyframes nf-spin { to { transform: rotate(360deg); } }
+
+/* Inline loading indicator (e.g. search in progress) */
+.nf-loading { display: flex; align-items: center; gap: .5rem; color: var(--nf-muted); }
+.nf-inline-spinner { width: 16px; height: 16px; flex: none; border: 2px solid var(--nf-border); border-top-color: var(--nf-primary); border-radius: 50%; animation: nf-spin .8s linear infinite; }
+
+/* Error boundary fallback card */
+.nf-error-card { background: var(--nf-card); border: 1px solid var(--nf-border); border-radius: var(--nf-radius); padding: 2rem 1.75rem; max-width: 520px; margin: 2rem auto; text-align: center; box-shadow: var(--nf-shadow); }
+.nf-error-card h2 { margin: 0 0 .5rem; }
+.nf-error-card p { color: var(--nf-muted); margin: 0 0 1.25rem; }
+.nf-error-actions { display: flex; gap: .75rem; justify-content: center; align-items: center; }
+
+/* Blazor's built-in unhandled-error bar. MUST stay hidden by default — the runtime reveals it by
+   setting an inline display style only on a genuine unhandled exception. This app loads namfix.css
+   instead of the template's app.css, so without this rule the bar would show permanently. */
+#blazor-error-ui { display: none; position: fixed; left: 0; bottom: 0; width: 100%; box-sizing: border-box; z-index: 1100; padding: .7rem 1.25rem; background: var(--nf-danger); color: #fff; box-shadow: 0 -1px 4px rgba(0, 0, 0, .3); }
+#blazor-error-ui .reload { color: #fff; text-decoration: underline; }
+#blazor-error-ui .dismiss { cursor: pointer; position: absolute; right: .75rem; top: .5rem; }

@@ -16,7 +16,7 @@
 </section>
 
 <section class="nf-filters">
-    <select @bind="_request.CategoryId">
+    <select @bind="_request.CategoryId" @bind:after="SearchAsync">
         <option value="">All categories</option>
         @foreach (var c in _categories)
         {
@@ -24,7 +24,7 @@
         }
     </select>
 
-    <select @bind="_request.TownId">
+    <select @bind="_request.TownId" @bind:after="SearchAsync">
         <option value="">All towns</option>
         @foreach (var t in _towns)
         {
@@ -32,15 +32,28 @@
         }
     </select>
 
-    <label class="nf-check"><input type="checkbox" @bind="EmergencyOnly" /> 24/7 Emergency</label>
-    <label class="nf-check"><input type="checkbox" @bind="AvailableNowOnly" /> Available now</label>
-    <button class="nf-link-btn" @onclick="UseMyLocationAsync">📍 Near me</button>
+    <label class="nf-check"><input type="checkbox" @bind="EmergencyOnly" @bind:after="SearchAsync" /> 24/7 Emergency</label>
+    <label class="nf-check"><input type="checkbox" @bind="AvailableNowOnly" @bind:after="SearchAsync" /> Available now</label>
+    <button class="nf-link-btn @(_nearMe ? "is-active" : "")" @onclick="ToggleNearMeAsync"
+            aria-pressed="@_nearMe">📍 Near me@(_nearMe ? " ✕" : "")</button>
+    @if (_nearMe)
+    {
+        <label class="nf-check">Within
+            <select @bind="_request.RadiusKm" @bind:after="SearchAsync">
+                <option value="10">10 km</option>
+                <option value="25">25 km</option>
+                <option value="50">50 km</option>
+                <option value="60">60 km</option>
+                <option value="100">100 km</option>
+            </select>
+        </label>
+    }
     <button class="nf-link-btn" @onclick="() => _showMap = !_showMap">@(_showMap ? "Hide map" : "Show map")</button>
 </section>
 
 @if (_loading)
 {
-    <p class="nf-muted">Searching…</p>
+    <p class="nf-loading"><span class="nf-inline-spinner"></span> Searching…</p>
 }
 else if (_results is null)
 {
@@ -48,7 +61,7 @@ else if (_results is null)
 }
 else
 {
-    <p class="nf-muted">@_results.TotalCount result(s)@(_nearMe ? " — sorted by distance" : "")</p>
+    <p class="nf-muted">@_results.TotalCount result(s)@(_nearMe ? $" within {_request.RadiusKm:0} km — sorted by distance" : "")</p>
 
     @if (_showMap && _results.Items.Any(r => r.Latitude is not null))
     {
@@ -99,17 +112,37 @@ else
         _loading = false;
     }
 
+    private Task ToggleNearMeAsync() => _nearMe ? ExitNearMeAsync() : UseMyLocationAsync();
+
     private async Task UseMyLocationAsync()
     {
-        var loc = await Geo.GetCurrentLocationAsync();
-        if (loc is { } point)
+        _loading = true;
+        try
         {
-            _request.NearLatitude = point.Latitude;
-            _request.NearLongitude = point.Longitude;
-            _nearMe = true;
-            _showMap = true;
-            await SearchAsync();
+            var loc = await Geo.GetCurrentLocationAsync();
+            if (loc is { } point)
+            {
+                _request.NearLatitude = point.Latitude;
+                _request.NearLongitude = point.Longitude;
+                _nearMe = true;
+                _showMap = true;
+                await SearchAsync();
+            }
         }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ExitNearMeAsync()
+    {
+        // Drop the location constraint and re-run so the user sees the full
+        // (non-distance-sorted) list again, keeping any other active filters.
+        _request.NearLatitude = null;
+        _request.NearLongitude = null;
+        _nearMe = false;
+        await SearchAsync();
     }
 
     private IEnumerable<MapMarker> MapMarkers =>

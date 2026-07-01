@@ -5,7 +5,7 @@
 
 @code {
     private readonly string _elementId = $"map-{Guid.NewGuid():N}";
-    private bool _rendered;
+    private bool Rendered { get; set; }
 
     /// <summary>Markers to plot. Re-rendered whenever the collection reference changes.</summary>
     [Parameter] public IEnumerable<MapMarker> Markers { get; set; } = Array.Empty<MapMarker>();
@@ -25,7 +25,7 @@
             await MapService.EnablePinModeAsync(_elementId,
                 async point => await OnPinned.InvokeAsync(point));
 
-        _rendered = true;
+        Rendered = true;
     }
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;

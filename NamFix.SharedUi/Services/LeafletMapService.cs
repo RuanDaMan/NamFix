@@ -62,7 +62,12 @@ public sealed class LeafletMapService : IMapService, IAsyncDisposable
 public sealed class BrowserGeolocationService : IGeolocationService
 {
     private readonly IJSRuntime _js;
-    public BrowserGeolocationService(IJSRuntime js) => _js = js;
+    private readonly ApiErrorNotifier _notifier;
+    public BrowserGeolocationService(IJSRuntime js, ApiErrorNotifier notifier)
+    {
+        _js = js;
+        _notifier = notifier;
+    }
 
     public async Task<GeoPoint?> GetCurrentLocationAsync()
     {
@@ -73,8 +78,15 @@ public sealed class BrowserGeolocationService : IGeolocationService
             var coords = await module.InvokeAsync<double[]?>("getCurrentLocation");
             return coords is { Length: 2 } ? new GeoPoint(coords[0], coords[1]) : null;
         }
-        catch
+        catch (JSException ex)
         {
+            // JS rejects with a user-safe reason (permission blocked, timeout, unsupported).
+            _notifier.Report(ex.Message, $"Geolocation failed: {ex.Message}");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _notifier.Report("Couldn't get your location. Please try again.", $"Geolocation failed: {ex}");
             return null;
         }
     }

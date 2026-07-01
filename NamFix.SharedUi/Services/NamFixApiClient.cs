@@ -246,6 +246,16 @@ public sealed class NamFixApiClient
 
     private async Task ReportFailureAsync(HttpResponseMessage response, string operation)
     {
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            // The session has ended (expired/invalid token). Clear the stale token and flip the UI to
+            // logged-out rather than surfacing a raw auth error, then let the user know gently.
+            await _tokens.ClearAsync();
+            _auth.NotifyChanged();
+            _errors.Report("Your session has expired. Please log in again.", $"{operation} -> 401 Unauthorized");
+            return;
+        }
+
         var message = await ReadErrorMessageAsync(response);
         _errors.Report(message, $"{operation} -> {(int)response.StatusCode} {response.ReasonPhrase}");
     }
