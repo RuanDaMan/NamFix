@@ -3,14 +3,17 @@
 # Run the NamFix Blazor WASM client on its own dev server (hot-reload friendly).
 #
 #   .\run.ps1            Local dev only:  https://localhost:7213
-#   .\run.ps1 live       LAN access:      http://0.0.0.0:7213 (open this PC's
+#   .\run.ps1 live       LAN access:      https://0.0.0.0:7213 (open this PC's
 #                        IP on your phone's browser to use the app)
 #
 # It calls the API at the "ApiBaseUrl" in wwwroot/appsettings.json (default
 # https://localhost:7111). In live mode the client automatically retargets that
-# at this PC's IP, so start the backend the same way first:
+# at this PC's host/scheme, so start the backend the same way first:
 #   ..\NamFix.Api\run.ps1 live
-# Trust the dev cert once if you haven't (local mode only): dotnet dev-certs https --trust
+# Local mode uses the .NET dev cert — trust it once: dotnet dev-certs https --trust
+# Live mode uses an mkcert cert so phones trust HTTPS/WSS. Install once:
+#     winget install FiloSottile.mkcert    (then:  mkcert -install)
+#   and install the same root CA on each phone: https://github.com/FiloSottile/mkcert#mobile-devices
 # ---------------------------------------------------------------------------
 param([string]$Mode)
 $ErrorActionPreference = 'Stop'
@@ -32,6 +35,35 @@ function Get-LanIPv4 {
                Select-Object -First 1).IPAddress
     }
     return $ip
+}
+
+# Ensure an mkcert-issued certificate exists for localhost + this PC's LAN IP, so phones that trust
+# the mkcert root CA get warning-free HTTPS (and working WSS/SignalR). Regenerated each run because
+# the LAN IP can change between networks. Requires mkcert on PATH and its root CA installed per device.
+function New-LanCert {
+    param([string]$Ip, [string]$CertDir)
+
+    if (-not (Get-Command mkcert -ErrorAction SilentlyContinue)) {
+        throw @'
+mkcert is not installed (or not on PATH). Live HTTPS needs it. Install once:
+    winget install FiloSottile.mkcert
+    mkcert -install
+Then install the SAME root CA on each phone that will connect:
+    https://github.com/FiloSottile/mkcert#mobile-devices
+'@
+    }
+
+    # Make sure the local root CA is present/trusted on this machine (idempotent; may prompt once).
+    & mkcert -install 2>&1 | Out-Null
+
+    if (-not (Test-Path $CertDir)) { New-Item -ItemType Directory -Path $CertDir | Out-Null }
+    $cert = Join-Path $CertDir 'namfix.pem'
+    $key  = Join-Path $CertDir 'namfix-key.pem'
+
+    & mkcert -cert-file $cert -key-file $key localhost 127.0.0.1 ::1 $Ip 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "mkcert failed to issue a certificate for $Ip." }
+
+    return @{ Cert = $cert; Key = $key }
 }
 
 # Recursively kill a process and all of its descendants. dotnet watch spawns a
@@ -72,13 +104,17 @@ if ($live) {
     $ip = Get-LanIPv4
     if (-not $ip) { throw "Could not determine this PC's LAN IP address. Connect to a network and retry." }
 
-    # Bind all interfaces over HTTP so other devices can load the client. The WASM client derives
-    # the API host from the address it was served from, so no per-run config edit is needed.
+    # Bind all interfaces over HTTPS using an mkcert certificate that covers this PC's LAN IP. The WASM
+    # client derives the API host AND scheme from the address it was served from (see Program.cs), so
+    # serving the client over HTTPS is what makes it call the API over HTTPS too — no config edit needed.
+    $tls = New-LanCert -Ip $ip -CertDir (Join-Path $PSScriptRoot 'certs')
+    $env:Kestrel__Certificates__Default__Path    = $tls.Cert
+    $env:Kestrel__Certificates__Default__KeyPath = $tls.Key
     $env:ASPNETCORE_ENVIRONMENT = 'Development'
-    $env:ASPNETCORE_URLS = 'http://0.0.0.0:7213'
+    $env:ASPNETCORE_URLS = 'https://0.0.0.0:7213'
 
-    Write-Host "Starting NamFix client (LIVE) on http://0.0.0.0:7213" -ForegroundColor Cyan
-    Write-Host "  Open this on your phone's browser: http://${ip}:7213" -ForegroundColor Green
+    Write-Host "Starting NamFix client (LIVE) on https://0.0.0.0:7213" -ForegroundColor Cyan
+    Write-Host "  Open this on your phone's browser: https://${ip}:7213" -ForegroundColor Green
     Write-Host "  (Make sure the API is running:      ..\NamFix.Api\run.ps1 live)" -ForegroundColor DarkGray
     Write-Host "  (Windows Firewall may prompt to allow access — choose Private networks.)" -ForegroundColor DarkGray
     Start-Dotnet -DotnetArgs @('watch', 'run', '--no-launch-profile') -Port 7213
