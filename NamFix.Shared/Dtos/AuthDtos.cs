@@ -36,6 +36,22 @@ public record RefreshRequest
     public string RefreshToken { get; set; } = string.Empty;
 }
 
+public record ForgotPasswordRequest
+{
+    [Required, EmailAddress]
+    public string Email { get; set; } = string.Empty;
+}
+
+/// <summary>Self-service password reset: redeem an emailed token and set a new password.</summary>
+public record ResetPasswordWithTokenRequest
+{
+    [Required]
+    public string Token { get; set; } = string.Empty;
+
+    [Required, MinLength(6)]
+    public string NewPassword { get; set; } = string.Empty;
+}
+
 public record AuthResponse
 {
     public string AccessToken { get; init; } = string.Empty;

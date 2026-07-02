@@ -29,4 +29,19 @@ public sealed class AuthController : ApiControllerBase
         try { return Ok(await _auth.RefreshAsync(request.RefreshToken)); }
         catch (AuthException ex) { return Unauthorized(new ErrorResponse { Error = ex.Message }); }
     }
+
+    /// <summary>Start password recovery. Always returns 200 so it never reveals whether the email exists.</summary>
+    [HttpPost("forgot-password")]
+    public async Task<ActionResult> ForgotPassword(ForgotPasswordRequest request)
+    {
+        await _auth.ForgotPasswordAsync(request);
+        return Ok();
+    }
+
+    [HttpPost("reset-password")]
+    public async Task<ActionResult> ResetPassword(ResetPasswordWithTokenRequest request)
+    {
+        try { await _auth.ResetPasswordAsync(request); return Ok(); }
+        catch (AuthException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
+    }
 }

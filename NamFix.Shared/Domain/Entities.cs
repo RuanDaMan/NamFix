@@ -340,3 +340,42 @@ public class SupportAttachment
     public long SizeBytes { get; set; }
     public DateTime CreatedAtUtc { get; set; }
 }
+
+/// <summary>
+/// A single-use password-reset token emailed to a user who forgot their password. Expires after a
+/// configured window; <see cref="UsedAtUtc"/> is stamped once redeemed so it cannot be replayed.
+/// </summary>
+public class PasswordResetToken
+{
+    public Guid Id { get; set; }
+    public Guid UserId { get; set; }
+    public string Token { get; set; } = string.Empty;
+    public DateTime ExpiresAtUtc { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime? UsedAtUtc { get; set; }
+    public bool IsRedeemable => UsedAtUtc is null && DateTime.UtcNow < ExpiresAtUtc;
+}
+
+/// <summary>A user's opt-in/out state for one grouped email-notification category. Absent rows default
+/// to subscribed. Keyed by (<see cref="UserId"/>, <see cref="Category"/>).</summary>
+public class UserEmailPreference
+{
+    public Guid UserId { get; set; }
+    public EmailNotificationCategory Category { get; set; }
+    public bool IsSubscribed { get; set; } = true;
+}
+
+/// <summary>An email fetched from the configured mailbox over POP3 and stored for the admin inbox.
+/// <see cref="MessageId"/> is the RFC message-id, used to dedupe repeated fetches.</summary>
+public class InboxMessage
+{
+    public Guid Id { get; set; }
+    public string MessageId { get; set; } = string.Empty;
+    public string FromName { get; set; } = string.Empty;
+    public string FromAddress { get; set; } = string.Empty;
+    public string Subject { get; set; } = string.Empty;
+    public DateTime ReceivedAtUtc { get; set; }
+    public string? TextBody { get; set; }
+    public string? HtmlBody { get; set; }
+    public DateTime FetchedAtUtc { get; set; }
+}

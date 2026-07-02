@@ -173,6 +173,21 @@ public enum NotificationType
     UrgentJobBroadcast = 20
 }
 
+/// <summary>
+/// Grouped email-notification categories a user can unsubscribe from. Every <see cref="NotificationType"/>
+/// maps to exactly one of these (see the map in <c>NotificationDispatcher</c>). <see cref="AccountSecurity"/>
+/// (password reset and similar) is transactional and is <b>always</b> sent — it is not user-toggleable.
+/// Stored as INT per the DB convention.
+/// </summary>
+public enum EmailNotificationCategory
+{
+    JobUpdates = 0,
+    Messages = 1,
+    Quotes = 2,
+    Support = 3,
+    AccountSecurity = 4
+}
+
 /// <summary>Broad subject area a support ticket falls under, chosen by the requester.</summary>
 public enum SupportCategory
 {

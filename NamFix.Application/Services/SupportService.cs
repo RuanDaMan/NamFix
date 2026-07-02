@@ -32,18 +32,18 @@ public interface ISupportService
 public sealed class SupportService : ISupportService
 {
     private readonly ISupportRepository _support;
-    private readonly INotificationRepository _notifications;
+    private readonly INotificationDispatcher _dispatcher;
     private readonly IUserRepository _users;
     private readonly ISupportRealtimeNotifier _realtime;
 
     public SupportService(
         ISupportRepository support,
-        INotificationRepository notifications,
+        INotificationDispatcher dispatcher,
         IUserRepository users,
         ISupportRealtimeNotifier realtime)
     {
         _support = support;
-        _notifications = notifications;
+        _dispatcher = dispatcher;
         _users = users;
         _realtime = realtime;
     }
@@ -263,7 +263,9 @@ public sealed class SupportService : ISupportService
 
     private async Task NotifyAsync(Guid recipientUserId, Guid ticketId, NotificationType type, string message)
     {
-        var notification = new Notification
+        // The dispatcher persists the notification and enqueues the matching email (respecting the
+        // user's unsubscribe settings); we then push it live over SignalR.
+        var dto = await _dispatcher.DispatchAsync(new Notification
         {
             Id = Guid.NewGuid(),
             UserId = recipientUserId,
@@ -272,17 +274,8 @@ public sealed class SupportService : ISupportService
             Message = message,
             IsRead = false,
             CreatedAtUtc = DateTime.UtcNow
-        };
-        await _notifications.InsertAsync(notification);
-        await _realtime.NotificationAsync(recipientUserId, new NotificationDto
-        {
-            Id = notification.Id,
-            TicketId = notification.TicketId,
-            Type = notification.Type,
-            Message = notification.Message,
-            IsRead = notification.IsRead,
-            CreatedAtUtc = notification.CreatedAtUtc
         });
+        await _realtime.NotificationAsync(recipientUserId, dto);
     }
 
     private async Task RaiseChangedAsync(Guid ticketId, Guid requesterUserId)

@@ -1,0 +1,80 @@
+@page "/admin/inbox"
+@attribute [Authorize(Roles = "Admin")]
+@inject NamFixApiClient Api
+
+<PageTitle>Inbox — NamFix</PageTitle>
+
+<h1>Inbox</h1>
+
+<section class="nf-admin-block nf-inbox">
+    <div class="nf-inbox-list">
+        @if (_loading)
+        {
+            <p class="nf-muted">Loading…</p>
+        }
+        else if (_messages.Count == 0)
+        {
+            <p class="nf-muted">No messages yet. Mail fetched from the configured mailbox appears here.</p>
+        }
+        else
+        {
+            <div class="nf-booking-list">
+                @foreach (var m in _messages)
+                {
+                    <button class="nf-booking-row nf-inbox-row @(m.Id == _selectedId ? "selected" : "")"
+                            @key="m.Id" @onclick="() => SelectAsync(m.Id)">
+                        <div class="nf-booking-row-main">
+                            <strong>@m.Subject</strong>
+                            <span class="nf-muted">@m.FromName &lt;@m.FromAddress&gt;</span>
+                        </div>
+                        <span class="nf-muted nf-booking-time">@m.ReceivedAtUtc.ToLocalTime().ToString("ddd d MMM, HH:mm")</span>
+                    </button>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="nf-inbox-view">
+        @if (_selected is null)
+        {
+            <p class="nf-muted">Select a message to read it.</p>
+        }
+        else
+        {
+            <div class="nf-inbox-headers">
+                <h2>@_selected.Subject</h2>
+                <p class="nf-muted">From @_selected.FromName &lt;@_selected.FromAddress&gt; ·
+                    @_selected.ReceivedAtUtc.ToLocalTime().ToString("dddd d MMM yyyy, HH:mm")</p>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(_selected.HtmlBody))
+            {
+                @* Render untrusted email HTML inside a sandboxed iframe (scripts disabled) so it can't
+                   run in the admin's session. *@
+                <iframe class="nf-inbox-html" sandbox="" srcdoc="@_selected.HtmlBody"></iframe>
+            }
+            else
+            {
+                <pre class="nf-inbox-text">@_selected.TextBody</pre>
+            }
+        }
+    </div>
+</section>
+
+@code {
+    private List<InboxMessageDto> _messages = new();
+    private InboxMessageDetailDto? _selected;
+    private Guid? _selectedId;
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _messages = await Api.GetInboxAsync();
+        _loading = false;
+    }
+
+    private async Task SelectAsync(Guid id)
+    {
+        _selectedId = id;
+        _selected = await Api.GetInboxMessageAsync(id);
+    }
+}

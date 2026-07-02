@@ -54,7 +54,7 @@ public interface IJobService
 public sealed class JobRequestService : IJobService
 {
     private readonly IJobRepository _jobs;
-    private readonly INotificationRepository _notifications;
+    private readonly INotificationDispatcher _dispatcher;
     private readonly IProviderRepository _providers;
     private readonly IUserRepository _users;
     private readonly IReviewRepository _reviews;
@@ -64,7 +64,7 @@ public sealed class JobRequestService : IJobService
 
     public JobRequestService(
         IJobRepository jobs,
-        INotificationRepository notifications,
+        INotificationDispatcher dispatcher,
         IProviderRepository providers,
         IUserRepository users,
         IReviewRepository reviews,
@@ -73,7 +73,7 @@ public sealed class JobRequestService : IJobService
         IJobRealtimeNotifier realtime)
     {
         _jobs = jobs;
-        _notifications = notifications;
+        _dispatcher = dispatcher;
         _providers = providers;
         _users = users;
         _reviews = reviews;
@@ -660,7 +660,9 @@ public sealed class JobRequestService : IJobService
 
     private async Task NotifyAsync(Guid recipientUserId, Guid jobId, NotificationType type, string message)
     {
-        var notification = new Notification
+        // The dispatcher persists the notification and enqueues the matching email (respecting the
+        // user's unsubscribe settings); we then push it live over SignalR.
+        var dto = await _dispatcher.DispatchAsync(new Notification
         {
             Id = Guid.NewGuid(),
             UserId = recipientUserId,
@@ -669,17 +671,8 @@ public sealed class JobRequestService : IJobService
             Message = message,
             IsRead = false,
             CreatedAtUtc = DateTime.UtcNow
-        };
-        await _notifications.InsertAsync(notification);
-        await _realtime.NotificationAsync(recipientUserId, new NotificationDto
-        {
-            Id = notification.Id,
-            JobRequestId = notification.JobRequestId,
-            Type = notification.Type,
-            Message = notification.Message,
-            IsRead = notification.IsRead,
-            CreatedAtUtc = notification.CreatedAtUtc
         });
+        await _realtime.NotificationAsync(recipientUserId, dto);
     }
 
     private Task RaiseChangedAsync(JobRequest job)

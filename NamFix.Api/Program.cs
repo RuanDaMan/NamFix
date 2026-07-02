@@ -1,9 +1,13 @@
 using System.Text;
+using Hangfire;
+using Hangfire.SqlServer;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using NamFix.Api.Infrastructure;
 using NamFix.Application;
+using NamFix.Application.Infrastructure.Mail;
 using NamFix.Application.Security;
+using NamFix.Application.Services;
 using Serilog;
 
 // Bootstrap logger so anything that fails before the host is built is still logged to the console.
@@ -48,6 +52,20 @@ try
 
     // Application + data layer (Dapper repositories, services, JWT, payment abstraction).
     builder.Services.AddNamFixApplication(builder.Configuration, connectionString);
+
+    // Hangfire (background email sending + inbox polling), backed by the same SQL Server. It creates
+    // and manages its own [HangFire] schema on first run. Registering the server also provides
+    // IBackgroundJobClient, which the Application layer uses to enqueue SendMailInBackground.
+    builder.Services.AddHangfire(cfg => cfg
+        .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+        .UseSimpleAssemblyNameTypeSerializer()
+        .UseRecommendedSerializerSettings()
+        .UseSqlServerStorage(connectionString, new SqlServerStorageOptions
+        {
+            PrepareSchemaIfNecessary = true,
+            QueuePollInterval = TimeSpan.FromSeconds(15)
+        }));
+    builder.Services.AddHangfireServer();
 
     // Realtime job + support pushes go out over SignalR (NotificationHub). The Application layer
     // raises these through IJobRealtimeNotifier / ISupportRealtimeNotifier; the host supplies the
@@ -124,6 +142,16 @@ try
     app.MapControllers();
     app.MapHub<StatusHub>("/hubs/status");
     app.MapHub<NotificationHub>("/hubs/notifications");
+
+    // Hangfire dashboard (local requests only — see the filter) and the recurring inbox poll.
+    app.UseHangfireDashboard("/hangfire", new DashboardOptions
+    {
+        Authorization = new[] { new HangfireDashboardAuthorizationFilter() }
+    });
+
+    var pollMinutes = Math.Clamp(app.Configuration.GetValue("Mail:InboxPollMinutes", 5), 1, 59);
+    app.Services.GetRequiredService<IRecurringJobManager>()
+        .AddOrUpdate<IInboxService>("inbox-sync", x => x.SyncInboxAsync(), $"*/{pollMinutes} * * * *");
 
     app.Run();
 }

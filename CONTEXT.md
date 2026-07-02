@@ -220,6 +220,36 @@ tables in place; stored status ints are preserved.)
   `BookingChanged` (wire event `JobChanged`) / `MessagePosted` so open views update live. Separate
   from the `StatusHub` heartbeat in §Connectivity.
 
+## 10a. Email / mailing subsystem
+
+Outgoing and incoming email, added alongside the in-app notification system.
+
+- **One sender, `IMailSenderService`** (`NamFix.Application/Infrastructure/Mail`, MailKit/MimeKit over
+  SMTP). `SendMailInBackground` is the Hangfire job entry point (`[AutomaticRetry(Attempts = 2)]`); the
+  `SendMail` overloads send inline. Every failure is logged in full (Serilog) and rethrown so Hangfire
+  retries — the request thread only ever *enqueues*, so a broken SMTP server never breaks an HTTP call.
+- **Hangfire** (`Hangfire.SqlServer`, same DB, `[HangFire]` schema auto-created) runs background sends
+  and a recurring `inbox-sync` job. Dashboard at `/hangfire` is **local-requests-only** (browser nav
+  can't carry the JWT — see `HangfireDashboardAuthorizationFilter`).
+- **Email for every notification**: `INotificationDispatcher` (`NamFix.Application/Services`) is the one
+  choke point — it persists the `Notification`, enqueues a themed email, and returns the DTO the caller
+  pushes over SignalR. Both `JobRequestService` and `SupportService` funnel `NotifyAsync` through it.
+  Emails are rendered by `EmailTemplateRenderer` (inline CSS mirroring the `namfix.css` light palette).
+- **Unsubscribe**: grouped `EmailNotificationCategory` (JobUpdates/Messages/Quotes/Support/
+  AccountSecurity). Each `NotificationType` maps to one; `AccountSecurity` (password resets) always
+  sends. Prefs live in `UserEmailPreferences`; footer links carry a stateless HMAC-signed token
+  (`EmailPreferenceService`) so one-click unsubscribe (`GET api/email/unsubscribe`) needs no login.
+  Managed on the client at `/settings/email`.
+- **Password recovery**: `POST api/auth/forgot-password` (never reveals if the email exists) emails a
+  single-use, expiring `PasswordResetTokens` link → `/reset-password?token=…` → `POST
+  api/auth/reset-password` (revokes all refresh tokens). Client pages + a Login "Forgot password?" link.
+- **Admin inbox**: the `inbox-sync` job reads the mailbox over POP3 (`Pop3MailReaderService`, deduped by
+  message-id) into `InboxMessages`; admins read it at `/admin/inbox` (`api/admin/inbox`). Untrusted HTML
+  bodies render inside a sandboxed iframe.
+- **Config**: `MailConfiguration` (SMTP/POP, prefilled with **dummy** values) and `Mail`
+  (ClientBaseUrl/ApiBaseUrl/SupportEmail/InboxPollMinutes/PasswordResetTokenHours) in
+  `NamFix.Api/appsettings.json`. Schema in migration `up/0018_create_email_tables.sql`.
+
 ## 10. Vertical slice implemented
 
 Auth (register/login/refresh, JWT) · Provider CRUD (self-managed profile, towns, tags, map pin,

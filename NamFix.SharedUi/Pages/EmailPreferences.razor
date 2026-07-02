@@ -1,0 +1,93 @@
+@page "/settings/email"
+@attribute [Authorize]
+@inject NamFixApiClient Api
+
+<PageTitle>Email settings — NamFix</PageTitle>
+
+<h1>Email notifications</h1>
+
+<section class="nf-admin-block">
+    <p class="nf-muted">Choose which emails NamFix sends you. You'll always keep getting essential
+        account &amp; security emails.</p>
+
+    @if (_loading)
+    {
+        <p class="nf-muted">Loading…</p>
+    }
+    else
+    {
+        <div class="nf-pref-list">
+            @foreach (var p in _prefs)
+            {
+                <label class="nf-pref-row" @key="p.Category">
+                    <input type="checkbox" @bind="p.IsSubscribed" disabled="@p.Locked" />
+                    <span class="nf-pref-text">
+                        <strong>@p.Label</strong>
+                        <span class="nf-muted">@p.Description</span>
+                    </span>
+                    @if (p.Locked)
+                    {
+                        <span class="nf-badge verified">Always on</span>
+                    }
+                </label>
+            }
+        </div>
+
+        <div class="nf-pref-actions">
+            <button class="nf-cta" @onclick="SaveAsync" disabled="@_saving">@(_saving ? "Saving…" : "Save changes")</button>
+            @if (_saved)
+            {
+                <span class="nf-muted">Saved ✓</span>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    private sealed class PrefRow
+    {
+        public EmailNotificationCategory Category { get; init; }
+        public string Label { get; init; } = "";
+        public string Description { get; init; } = "";
+        public bool Locked { get; init; }
+        public bool IsSubscribed { get; set; }
+    }
+
+    private List<PrefRow> _prefs = new();
+    private bool _loading = true;
+    private bool _saving;
+    private bool _saved;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        var dtos = await Api.GetEmailPreferencesAsync();
+        _prefs = dtos.Select(d => new PrefRow
+        {
+            Category = d.Category,
+            Label = d.Label,
+            Description = d.Description,
+            Locked = d.Locked,
+            IsSubscribed = d.IsSubscribed
+        }).ToList();
+        _loading = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        _saved = false;
+        var request = new UpdateEmailPreferencesRequest
+        {
+            Preferences = _prefs
+                .Where(p => !p.Locked)
+                .Select(p => new EmailPreferenceDto { Category = p.Category, IsSubscribed = p.IsSubscribed })
+                .ToList()
+        };
+        if (await Api.UpdateEmailPreferencesAsync(request))
+            _saved = true;
+        _saving = false;
+    }
+}

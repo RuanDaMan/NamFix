@@ -366,3 +366,30 @@ body {
     .nf-user-row { grid-template-columns: 1fr 1fr; }
     .nf-user-head { display: none; }
 }
+
+/* ---- Email preferences ---- */
+.nf-pref-list { display: flex; flex-direction: column; gap: .5rem; margin: 1rem 0; }
+.nf-pref-row { display: flex; align-items: center; gap: .8rem; padding: .8rem 1rem; background: var(--nf-card);
+    border: 1px solid var(--nf-border); border-radius: var(--nf-radius); cursor: pointer; }
+.nf-pref-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--nf-primary); flex: none; }
+.nf-pref-row input[disabled] { cursor: not-allowed; }
+.nf-pref-text { display: flex; flex-direction: column; gap: .15rem; flex: 1; }
+.nf-pref-text .nf-muted { font-size: .85rem; }
+.nf-pref-actions { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }
+
+/* ---- Admin inbox ---- */
+.nf-inbox { display: grid; grid-template-columns: minmax(240px, 340px) 1fr; gap: 1rem; align-items: start; }
+.nf-inbox-list { min-width: 0; }
+.nf-inbox-row { width: 100%; text-align: left; background: var(--nf-card); border: 1px solid var(--nf-border);
+    cursor: pointer; font: inherit; color: inherit; }
+.nf-inbox-row.selected { border-color: var(--nf-primary); box-shadow: 0 0 0 1px var(--nf-primary) inset; }
+.nf-inbox-view { min-width: 0; background: var(--nf-card); border: 1px solid var(--nf-border);
+    border-radius: var(--nf-radius); padding: 1.2rem 1.4rem; }
+.nf-inbox-headers h2 { margin: 0 0 .3rem; font-size: 1.1rem; }
+.nf-inbox-headers { border-bottom: 1px solid var(--nf-border); padding-bottom: .8rem; margin-bottom: 1rem; }
+.nf-inbox-html { width: 100%; min-height: 420px; border: 0; background: #ffffff; border-radius: 8px; }
+.nf-inbox-text { white-space: pre-wrap; word-break: break-word; font: inherit; margin: 0; }
+
+@media (max-width: 720px) {
+    .nf-inbox { grid-template-columns: 1fr; }
+}

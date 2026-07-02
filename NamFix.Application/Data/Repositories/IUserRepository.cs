@@ -14,6 +14,14 @@ public interface IUserRepository
     Task<RefreshToken?> GetRefreshTokenAsync(string token);
     Task RevokeRefreshTokenAsync(Guid id);
 
+    /// <summary>Revoke every active refresh token for a user (e.g. after a password reset).</summary>
+    Task RevokeAllRefreshTokensForUserAsync(Guid userId);
+
+    // ---- Password reset ----
+    Task AddPasswordResetTokenAsync(PasswordResetToken token);
+    Task<PasswordResetToken?> GetPasswordResetTokenAsync(string token);
+    Task MarkPasswordResetTokenUsedAsync(Guid id);
+
     // ---- Admin user management + presence ----
 
     /// <summary>All users projected for the admin page (with booking/ticket counts). IsOnline is filled in by the service.</summary>
@@ -81,6 +89,38 @@ public sealed class UserRepository : IUserRepository
         using var conn = await _db.CreateOpenConnectionAsync();
         await conn.ExecuteAsync(
             "UPDATE dbo.RefreshTokens SET RevokedAtUtc = SYSUTCDATETIME() WHERE Id = @id", new { id });
+    }
+
+    public async Task RevokeAllRefreshTokensForUserAsync(Guid userId)
+    {
+        using var conn = await _db.CreateOpenConnectionAsync();
+        await conn.ExecuteAsync(
+            "UPDATE dbo.RefreshTokens SET RevokedAtUtc = SYSUTCDATETIME() WHERE UserId = @userId AND RevokedAtUtc IS NULL",
+            new { userId });
+    }
+
+    public async Task AddPasswordResetTokenAsync(PasswordResetToken token)
+    {
+        using var conn = await _db.CreateOpenConnectionAsync();
+        await conn.ExecuteAsync(
+            """
+            INSERT INTO dbo.PasswordResetTokens (Id, UserId, Token, ExpiresAtUtc, CreatedAtUtc, UsedAtUtc)
+            VALUES (@Id, @UserId, @Token, @ExpiresAtUtc, @CreatedAtUtc, @UsedAtUtc)
+            """, token);
+    }
+
+    public async Task<PasswordResetToken?> GetPasswordResetTokenAsync(string token)
+    {
+        using var conn = await _db.CreateOpenConnectionAsync();
+        return await conn.QuerySingleOrDefaultAsync<PasswordResetToken>(
+            "SELECT * FROM dbo.PasswordResetTokens WHERE Token = @token", new { token });
+    }
+
+    public async Task MarkPasswordResetTokenUsedAsync(Guid id)
+    {
+        using var conn = await _db.CreateOpenConnectionAsync();
+        await conn.ExecuteAsync(
+            "UPDATE dbo.PasswordResetTokens SET UsedAtUtc = SYSUTCDATETIME() WHERE Id = @id", new { id });
     }
 
     public async Task<List<AdminUserDto>> ListAdminUsersAsync()

@@ -66,6 +66,40 @@ public sealed class NamFixApiClient
         _auth.NotifyChanged();
     }
 
+    // ---- Password recovery ----
+    // Forgot-password always succeeds server-side (no account enumeration); only a transport failure
+    // surfaces (as the shared offline message). Reset returns an inline error string like login/register.
+    public async Task<bool> ForgotPasswordAsync(ForgotPasswordRequest request) =>
+        await SendOkAsync(() => _http.PostAsJsonAsync("api/auth/forgot-password", request));
+
+    public async Task<string?> ResetPasswordAsync(ResetPasswordWithTokenRequest request)
+    {
+        try
+        {
+            var response = await _http.PostAsJsonAsync("api/auth/reset-password", request);
+            return response.IsSuccessStatusCode ? null : await ReadErrorMessageAsync(response);
+        }
+        catch (HttpRequestException ex)
+        {
+            _errors.Report(OfflineMessage, $"api/auth/reset-password: {ex}");
+            return OfflineMessage;
+        }
+    }
+
+    // ---- Email preferences (unsubscribe management) ----
+    public async Task<List<EmailPreferenceDto>> GetEmailPreferencesAsync() =>
+        await SendAsync<List<EmailPreferenceDto>>(() => _http.GetAsync("api/email/preferences")) ?? new();
+
+    public async Task<bool> UpdateEmailPreferencesAsync(UpdateEmailPreferencesRequest request) =>
+        await SendOkAsync(() => _http.PutAsJsonAsync("api/email/preferences", request));
+
+    // ---- Admin inbox ----
+    public async Task<List<InboxMessageDto>> GetInboxAsync() =>
+        await SendAsync<List<InboxMessageDto>>(() => _http.GetAsync("api/admin/inbox")) ?? new();
+
+    public async Task<InboxMessageDetailDto?> GetInboxMessageAsync(Guid id) =>
+        await SendAsync<InboxMessageDetailDto>(() => _http.GetAsync($"api/admin/inbox/{id}"));
+
     // ---- Taxonomy ----
     public async Task<List<TownDto>> GetTownsAsync() =>
         await SendAsync<List<TownDto>>(() => _http.GetAsync("api/taxonomy/towns")) ?? new();

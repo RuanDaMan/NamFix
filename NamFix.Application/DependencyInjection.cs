@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NamFix.Application.Data;
 using NamFix.Application.Data.Repositories;
 using NamFix.Application.Infrastructure;
+using NamFix.Application.Infrastructure.Mail;
 using NamFix.Application.Security;
 using NamFix.Application.Services;
 using NamFix.Shared.Contracts;
@@ -35,6 +36,22 @@ public static class DependencyInjection
         services.AddScoped<IAvailabilityRepository, AvailabilityRepository>();
         services.AddScoped<IRateCardRepository, RateCardRepository>();
         services.AddScoped<IPlatformSettingsRepository, PlatformSettingsRepository>();
+        services.AddScoped<IEmailPreferenceRepository, EmailPreferenceRepository>();
+        services.AddScoped<IInboxRepository, InboxRepository>();
+
+        // Mail: SMTP send + POP read, config-bound options, and the HTML template renderer. The
+        // background sender (SendMailInBackground) is invoked by Hangfire, which the API host registers.
+        var mailConfig = new MailConfiguration();
+        configuration.GetSection("MailConfiguration").Bind(mailConfig);
+        services.AddSingleton(mailConfig);
+
+        var mailApp = new MailAppSettings();
+        configuration.GetSection("Mail").Bind(mailApp);
+        services.AddSingleton(mailApp);
+
+        services.AddSingleton<EmailTemplateRenderer>();
+        services.AddScoped<IMailSenderService, SmtpMailSenderService>();
+        services.AddScoped<IMailReaderService, Pop3MailReaderService>();
 
         // Security
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
@@ -56,6 +73,9 @@ public static class DependencyInjection
         services.AddScoped<IPlatformSettingsService, PlatformSettingsService>();
         services.AddScoped<ISupportService, SupportService>();
         services.AddScoped<IUserAdminService, UserAdminService>();
+        services.AddScoped<INotificationDispatcher, NotificationDispatcher>();
+        services.AddScoped<IEmailPreferenceService, EmailPreferenceService>();
+        services.AddScoped<IInboxService, InboxService>();
 
         return services;
     }
