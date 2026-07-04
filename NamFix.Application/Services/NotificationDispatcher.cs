@@ -116,6 +116,10 @@ public sealed class NotificationDispatcher : INotificationDispatcher
         return ("Open NamFix", baseUrl);
     }
 
+    /// <summary>Maps a notification type to its unsubscribe category and email title. Exposed so the
+    /// admin test-email tool renders the exact same titles/categories real notifications use.</summary>
+    public static (EmailNotificationCategory Category, string Title) DescribeEmail(NotificationType type) => Map(type);
+
     /// <summary>Maps a notification type to its unsubscribe category and email title.</summary>
     private static (EmailNotificationCategory Category, string Title) Map(NotificationType type) => type switch
     {

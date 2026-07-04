@@ -76,7 +76,16 @@ Enums are stored as `INT` columns (see `NamFix.Shared.Enums`).
 `dbo.Providers(BusinessName, Description, SearchKeywords)` keyed by `PK_Providers`. `SearchKeywords`
 is a **denormalized blob** (business name + category + tags) maintained by `ProviderService` on save,
 so tag/category terms are searchable without joins. Search uses `FREETEXT` for natural-language,
-inflection-tolerant matching; the typeahead sproc uses `CONTAINS` with a prefix term.
+inflection-tolerant matching.
+
+**Typo/spacing-tolerant matching** (`NamFix.Application/Search`): full-text alone can't forgive
+misspellings or wrong spacing ("NamibBuild"→"Namib Build", "Namb B"→"Namib Build"). `FuzzyMatcher`
+(normalization + token-coverage + bounded Levenshtein) scores queries over a small cached in-memory
+index of active providers (`IProviderSearchIndex`, `IMemoryCache`, 60s TTL, invalidated on provider
+save). It powers two things: the search-box **typeahead** dropdown (`GET api/search/typeahead`) and a
+**recall boost** on full search — `ProviderService.SearchAsync` OR's the fuzzy-matched ids into the
+SQL `FREETEXT` predicate so misspelled/odd-spaced queries still return the full result grid. The
+legacy `usp_ProviderTypeahead` sproc is superseded by this in-app path.
 
 ---
 

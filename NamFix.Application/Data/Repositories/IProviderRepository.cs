@@ -1,6 +1,7 @@
 using System.Data;
 using System.Text;
 using Dapper;
+using NamFix.Application.Search;
 using NamFix.Shared.Domain;
 using NamFix.Shared.Dtos;
 using NamFix.Shared.Enums;
@@ -17,7 +18,17 @@ public interface IProviderRepository
     Task SetStatusAsync(Guid providerId, ProviderStatus status);
     Task SetVerifiedAsync(Guid providerId, bool verified);
     Task RecalculateRatingAsync(Guid providerId);
-    Task<PagedResult<ProviderSearchResult>> SearchAsync(ProviderSearchRequest request);
+
+    /// <summary>
+    /// Filtered/sorted provider search. <paramref name="fuzzyIds"/>, when supplied, are provider ids
+    /// the application's fuzzy matcher found for the text query; they're OR'd with the SQL full-text
+    /// predicate so misspelled / oddly-spaced queries still return results.
+    /// </summary>
+    Task<PagedResult<ProviderSearchResult>> SearchAsync(
+        ProviderSearchRequest request, IReadOnlyCollection<Guid>? fuzzyIds = null);
+
+    /// <summary>Lightweight projection of every active provider used to build the fuzzy search index.</summary>
+    Task<IReadOnlyList<ProviderIndexRow>> GetSearchIndexAsync();
 
     /// <summary>Denormalized starting price = min active rate-card price. Maintained on rate-card save.</summary>
     Task SetStartingPriceAsync(Guid providerId, decimal? price);
@@ -244,17 +255,29 @@ public sealed class ProviderRepository : IProviderRepository
         return (await conn.QueryAsync<ProviderMatch>(sql, p)).AsList();
     }
 
-    public async Task<PagedResult<ProviderSearchResult>> SearchAsync(ProviderSearchRequest r)
+    public async Task<PagedResult<ProviderSearchResult>> SearchAsync(
+        ProviderSearchRequest r, IReadOnlyCollection<Guid>? fuzzyIds = null)
     {
         var p = new DynamicParameters();
         var where = new StringBuilder("WHERE pr.Status = @activeStatus");
         p.Add("activeStatus", (int)ProviderStatus.Active);
 
-        // Full-text predicate: FREETEXT gives natural-language, inflection-tolerant matching
-        // across the provider name, description, and denormalized tag/category keywords.
+        // Text predicate: FREETEXT gives natural-language, inflection-tolerant matching across the
+        // provider name, description, and denormalized tag/category keywords. When the application's
+        // fuzzy matcher also found candidates (typos / odd spacing that full-text misses), OR them in
+        // so those providers still surface.
         if (!string.IsNullOrWhiteSpace(r.Query))
         {
-            where.Append(" AND FREETEXT((pr.BusinessName, pr.Description, pr.SearchKeywords), @query)");
+            var hasFuzzy = fuzzyIds is { Count: > 0 };
+            if (hasFuzzy)
+            {
+                where.Append(" AND (FREETEXT((pr.BusinessName, pr.Description, pr.SearchKeywords), @query) OR pr.Id IN @fuzzyIds)");
+                p.Add("fuzzyIds", fuzzyIds);
+            }
+            else
+            {
+                where.Append(" AND FREETEXT((pr.BusinessName, pr.Description, pr.SearchKeywords), @query)");
+            }
             p.Add("query", r.Query.Trim());
         }
 
@@ -403,5 +426,25 @@ public sealed class ProviderRepository : IProviderRepository
             PageSize = pageSize,
             TotalCount = total
         };
+    }
+
+    public async Task<IReadOnlyList<ProviderIndexRow>> GetSearchIndexAsync()
+    {
+        using var conn = await _db.CreateOpenConnectionAsync();
+        return (await conn.QueryAsync<ProviderIndexRow>(
+            """
+            SELECT pr.Id, pr.BusinessName, c.Name AS CategoryName, t.Name AS TownName,
+                   pr.SearchKeywords, pr.IsVerified, pr.IsEmergencyCallout, pr.Availability,
+                   pr.RatingAverage, pr.RatingCount,
+                   (SELECT STRING_AGG(tg.Name, '|')
+                    FROM dbo.ProviderTags ptg
+                    JOIN dbo.Tags tg ON tg.Id = ptg.TagId
+                    WHERE ptg.ProviderId = pr.Id AND tg.Status = @approved) AS TagsBlob
+            FROM dbo.Providers pr
+            LEFT JOIN dbo.Categories c ON c.Id = pr.PrimaryCategoryId
+            LEFT JOIN dbo.Towns t ON t.Id = pr.PrimaryTownId
+            WHERE pr.Status = @activeStatus
+            """,
+            new { activeStatus = (int)ProviderStatus.Active, approved = (int)TagStatus.Approved })).AsList();
     }
 }

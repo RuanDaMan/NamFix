@@ -1,0 +1,115 @@
+@page "/admin/mail-test"
+@attribute [Authorize(Roles = "Admin")]
+@inject NamFixApiClient Api
+
+<PageTitle>Test emails — NamFix</PageTitle>
+
+<h1>Test emails</h1>
+<p class="nf-muted">Send a dummy sample of each selected email type to an address so you can see how it
+    renders. Content is placeholder data — no real users or jobs are touched.</p>
+
+<section class="nf-admin-block">
+    <label class="nf-field-label" for="test-email-to">Send to</label>
+    <input id="test-email-to" type="email" class="nf-input" placeholder="you@example.com"
+           @bind="_toEmail" @bind:event="oninput" />
+
+    <div class="nf-mailtest-actions">
+        <button class="nf-link-btn" type="button" @onclick="SelectAll">Select all</button>
+        <button class="nf-link-btn" type="button" @onclick="ClearAll">Clear</button>
+        <span class="nf-muted">@_selected.Count selected</span>
+    </div>
+</section>
+
+@if (_loading)
+{
+    <p class="nf-muted">Loading email types…</p>
+}
+else
+{
+    @foreach (var group in _types.GroupBy(t => t.Group))
+    {
+        <section class="nf-admin-block">
+            <h2>@group.Key</h2>
+            <div class="nf-mailtest-grid">
+                @foreach (var type in group)
+                {
+                    <label class="nf-check" @key="type.Key">
+                        <input type="checkbox"
+                               checked="@_selected.Contains(type.Key)"
+                               @onchange="e => Toggle(type.Key, (bool)e.Value!)" />
+                        <span>@type.Label</span>
+                    </label>
+                }
+            </div>
+        </section>
+    }
+
+    <section class="nf-admin-block">
+        <div class="nf-pay-row">
+            <button class="nf-cta" @onclick="SendAsync" disabled="@(_sending || !CanSend)">
+                @(_sending ? "Sending…" : $"Send {_selected.Count} test email(s)")
+            </button>
+            @if (_result is not null)
+            {
+                <span class="nf-success">Sent @_result.Sent ✓</span>
+            }
+        </div>
+
+        @if (_result is { Failed.Count: > 0 })
+        {
+            <p class="nf-error">Failed to send: @string.Join(", ", _result.Failed). Check the server logs for detail.</p>
+        }
+
+        <p class="nf-muted nf-mailtest-note">Note: in development (Debug) builds, all outgoing mail is
+            redirected to the configured <code>Mail:DebugEmail</code> address (or skipped if none is set),
+            so it may not arrive at the address above.</p>
+    </section>
+}
+
+@code {
+    private List<TestEmailTypeDto> _types = new();
+    private readonly HashSet<string> _selected = new();
+    private string _toEmail = string.Empty;
+    private bool _loading = true;
+    private bool _sending;
+    private SendTestEmailsResultDto? _result;
+
+    private bool CanSend => !string.IsNullOrWhiteSpace(_toEmail) && _selected.Count > 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _types = await Api.GetTestEmailTypesAsync();
+        _loading = false;
+    }
+
+    private void Toggle(string key, bool on)
+    {
+        if (on) _selected.Add(key); else _selected.Remove(key);
+        _result = null;
+    }
+
+    private void SelectAll()
+    {
+        foreach (var t in _types) _selected.Add(t.Key);
+        _result = null;
+    }
+
+    private void ClearAll()
+    {
+        _selected.Clear();
+        _result = null;
+    }
+
+    private async Task SendAsync()
+    {
+        if (!CanSend) return;
+        _sending = true;
+        _result = null;
+        _result = await Api.SendTestEmailsAsync(new SendTestEmailsRequest
+        {
+            ToEmail = _toEmail.Trim(),
+            Keys = _selected.ToList()
+        });
+        _sending = false;
+    }
+}

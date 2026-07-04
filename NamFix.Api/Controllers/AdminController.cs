@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using NamFix.Application.Infrastructure.Mail;
 using NamFix.Application.Services;
 using NamFix.Shared.Domain;
 using NamFix.Shared.Dtos;
@@ -13,11 +14,14 @@ public sealed class AdminController : ApiControllerBase
     private readonly IAdminService _admin;
     private readonly IUserAdminService _users;
     private readonly IPlatformSettingsService _settings;
-    public AdminController(IAdminService admin, IUserAdminService users, IPlatformSettingsService settings)
+    private readonly IMailPreviewService _mailPreview;
+    public AdminController(IAdminService admin, IUserAdminService users, IPlatformSettingsService settings,
+        IMailPreviewService mailPreview)
     {
         _admin = admin;
         _users = users;
         _settings = settings;
+        _mailPreview = mailPreview;
     }
 
     [HttpPost("providers/{id:guid}/status")]
@@ -114,5 +118,20 @@ public sealed class AdminController : ApiControllerBase
     {
         await _settings.UpdateAsync(request);
         return NoContent();
+    }
+
+    // ---- Test emails (preview each mail type against a chosen address) ----
+
+    [HttpGet("test-emails/types")]
+    public ActionResult<IReadOnlyList<TestEmailTypeDto>> TestEmailTypes() =>
+        Ok(_mailPreview.ListTypes());
+
+    [HttpPost("test-emails")]
+    public async Task<ActionResult<SendTestEmailsResultDto>> SendTestEmails(SendTestEmailsRequest request)
+    {
+        if (request.Keys.Count == 0)
+            return BadRequest(new ErrorResponse { Error = "Select at least one email type to send." });
+
+        return Ok(await _mailPreview.SendAsync(request.ToEmail, request.Keys));
     }
 }

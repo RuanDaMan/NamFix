@@ -65,3 +65,30 @@ public sealed record UpdateEmailPreferencesRequest
 {
     public List<EmailPreferenceDto> Preferences { get; set; } = new();
 }
+
+/// <summary>One selectable email type on the admin "send test emails" tool. <see cref="Key"/> is the
+/// stable identifier passed back in <see cref="SendTestEmailsRequest"/>; <see cref="Group"/> is used
+/// only to bucket the checkboxes in the UI.</summary>
+public sealed record TestEmailTypeDto
+{
+    public string Key { get; init; } = string.Empty;
+    public string Label { get; init; } = string.Empty;
+    public string Group { get; init; } = string.Empty;
+}
+
+/// <summary>Admin request to send a dummy sample of each selected email type to one address.</summary>
+public sealed record SendTestEmailsRequest
+{
+    [Required, EmailAddress]
+    public string ToEmail { get; set; } = string.Empty;
+
+    /// <summary>The <see cref="TestEmailTypeDto.Key"/> values the admin ticked.</summary>
+    public List<string> Keys { get; set; } = new();
+}
+
+/// <summary>Outcome of a test-email send: how many went out and which ones (labels) failed.</summary>
+public sealed record SendTestEmailsResultDto
+{
+    public int Sent { get; init; }
+    public List<string> Failed { get; init; } = new();
+}

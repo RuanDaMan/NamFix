@@ -4,6 +4,7 @@ using NamFix.Application.Data;
 using NamFix.Application.Data.Repositories;
 using NamFix.Application.Infrastructure;
 using NamFix.Application.Infrastructure.Mail;
+using NamFix.Application.Search;
 using NamFix.Application.Security;
 using NamFix.Application.Services;
 using NamFix.Shared.Contracts;
@@ -39,6 +40,10 @@ public static class DependencyInjection
         services.AddScoped<IEmailPreferenceRepository, EmailPreferenceRepository>();
         services.AddScoped<IInboxRepository, InboxRepository>();
 
+        // In-memory fuzzy search index (typo/spacing-tolerant provider matching), cached with a short TTL.
+        services.AddMemoryCache();
+        services.AddScoped<IProviderSearchIndex, ProviderSearchIndex>();
+
         // Mail: SMTP send + POP read, config-bound options, and the HTML template renderer. The
         // background sender (SendMailInBackground) is invoked by Hangfire, which the API host registers.
         var mailConfig = new MailConfiguration();
@@ -52,6 +57,7 @@ public static class DependencyInjection
         services.AddSingleton<EmailTemplateRenderer>();
         services.AddScoped<IMailSenderService, SmtpMailSenderService>();
         services.AddScoped<IMailReaderService, Pop3MailReaderService>();
+        services.AddScoped<IMailPreviewService, MailPreviewService>();
 
         // Security
         services.AddSingleton<IPasswordHasher, PasswordHasher>();

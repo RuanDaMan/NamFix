@@ -74,6 +74,28 @@ public record ProviderSearchResult
 }
 
 /// <summary>
+/// A single autocomplete suggestion shown in the search box dropdown. Carries enough to render a
+/// compact preview resembling a search-result card (category, town, rating, flags) plus the tag that
+/// caused a keyword match, so the user sees *why* it matched.
+/// </summary>
+public record ProviderSuggestion
+{
+    public Guid Id { get; init; }
+    public string BusinessName { get; init; } = string.Empty;
+    public string? PrimaryCategoryName { get; init; }
+    public string? PrimaryTownName { get; init; }
+    public decimal? RatingAverage { get; init; }
+    public int RatingCount { get; init; }
+    public bool IsVerified { get; init; }
+    public bool IsEmergencyCallout { get; init; }
+    public AvailabilityStatus Availability { get; init; }
+
+    /// <summary>The tag whose match drove this suggestion, when the hit came from a tag rather than the
+    /// business name (e.g. typing "geyser" surfacing a plumber tagged "geyser"). Null otherwise.</summary>
+    public string? MatchedTag { get; init; }
+}
+
+/// <summary>
 /// Search/filter criteria. All filters are optional and combine with AND semantics.
 /// Mutable so Blazor forms can two-way bind directly to it.
 /// </summary>

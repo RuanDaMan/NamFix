@@ -114,6 +114,10 @@ public sealed class NamFixApiClient
     public async Task<PagedResult<ProviderSearchResult>> SearchAsync(ProviderSearchRequest request) =>
         await SendAsync<PagedResult<ProviderSearchResult>>(() => _http.PostAsJsonAsync("api/search", request)) ?? new();
 
+    public async Task<List<ProviderSuggestion>> SearchSuggestionsAsync(string term, int take = 8) =>
+        await SendAsync<List<ProviderSuggestion>>(
+            () => _http.GetAsync($"api/search/typeahead?term={Uri.EscapeDataString(term)}&take={take}")) ?? new();
+
     public async Task<ProviderDto?> GetProviderAsync(Guid id) =>
         await SendAsync<ProviderDto>(() => _http.GetAsync($"api/providers/{id}"));
 
@@ -389,6 +393,13 @@ public sealed class NamFixApiClient
 
     public async Task<bool> UpdatePlatformSettingsAsync(PlatformSettingsDto request) =>
         await SendOkAsync(() => _http.PutAsJsonAsync("api/admin/settings", request));
+
+    // ---- Admin: test emails (preview each mail type) ----
+    public async Task<List<TestEmailTypeDto>> GetTestEmailTypesAsync() =>
+        await SendAsync<List<TestEmailTypeDto>>(() => _http.GetAsync("api/admin/test-emails/types")) ?? new();
+
+    public async Task<SendTestEmailsResultDto?> SendTestEmailsAsync(SendTestEmailsRequest request) =>
+        await SendAsync<SendTestEmailsResultDto>(() => _http.PostAsJsonAsync("api/admin/test-emails", request));
 
     // ---- Central error-handling plumbing ----
 

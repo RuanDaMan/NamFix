@@ -13,4 +13,10 @@ public sealed class SearchController : ApiControllerBase
     [HttpPost]
     public async Task<ActionResult<PagedResult<ProviderSearchResult>>> Search(ProviderSearchRequest request) =>
         Ok(await _providers.SearchAsync(request));
+
+    /// <summary>Typo/spacing-tolerant autocomplete for the search box dropdown.</summary>
+    [HttpGet("typeahead")]
+    public async Task<ActionResult<IReadOnlyList<ProviderSuggestion>>> Typeahead(
+        [FromQuery] string? term, [FromQuery] int take = 8) =>
+        Ok(await _providers.TypeaheadAsync(term, take));
 }

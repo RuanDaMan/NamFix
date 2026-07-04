@@ -1,6 +1,8 @@
 @page "/"
+@implements IDisposable
 @inject NamFixApiClient Api
 @inject IGeolocationService Geo
+@inject NavigationManager Nav
 
 <PageTitle>NamFix — Find a tradesperson</PageTitle>
 
@@ -9,8 +11,54 @@
     <p>Plumbers, electricians, mechanics, carpenters &amp; more — in your town.</p>
 
     <div class="nf-searchbar">
-        <input type="text" placeholder="What do you need? e.g. geyser repair"
-               @bind="_request.Query" @bind:event="oninput" @onkeyup="OnKeyUp" />
+        <div class="nf-typeahead">
+            <input type="text" placeholder="What do you need? e.g. geyser repair" autocomplete="off"
+                   value="@_request.Query" @oninput="OnQueryInput" @onkeydown="OnQueryKeyDown"
+                   @onfocus="OnQueryFocus" @onblur="OnQueryBlur" />
+            @if (_showSuggestions && _suggestions.Count > 0)
+            {
+                <ul class="nf-suggest">
+                    @for (var i = 0; i < _suggestions.Count; i++)
+                    {
+                        var s = _suggestions[i];
+                        var idx = i;
+                        // Use mousedown, not click: it fires before the input's blur so the pick registers.
+                        <li class="nf-suggest-item @(idx == _activeSuggestion ? "is-active" : "")"
+                            @onmousedown:preventDefault @onmousedown="() => SelectSuggestion(s)">
+                            <div class="nf-suggest-head">
+                                <span class="nf-suggest-name">@s.BusinessName</span>
+                                @if (s.IsVerified)
+                                {
+                                    <span class="nf-badge verified" title="Admin-verified">✓</span>
+                                }
+                            </div>
+                            <div class="nf-suggest-meta">
+                                @if (!string.IsNullOrWhiteSpace(s.PrimaryCategoryName))
+                                {
+                                    <span class="nf-cat">@s.PrimaryCategoryName</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(s.PrimaryTownName))
+                                {
+                                    <span class="nf-town">📍 @s.PrimaryTownName</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(s.MatchedTag))
+                                {
+                                    <span class="nf-tag nf-suggest-hit">@s.MatchedTag</span>
+                                }
+                            </div>
+                            <div class="nf-suggest-foot">
+                                <RatingStars Value="s.RatingAverage" Count="s.RatingCount" />
+                                @if (s.IsEmergencyCallout)
+                                {
+                                    <span class="nf-badge emergency">⚡ 24/7</span>
+                                }
+                                <span class="nf-badge avail-@s.Availability.ToString().ToLower()">@AvailabilityLabel(s.Availability)</span>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
         <button class="nf-cta" @onclick="SearchAsync">Search</button>
     </div>
 </section>
@@ -100,6 +148,12 @@ else
     private bool _showMap;
     private bool _nearMe;
 
+    // Typeahead dropdown state.
+    private List<ProviderSuggestion> _suggestions = new();
+    private bool _showSuggestions;
+    private int _activeSuggestion = -1;
+    private CancellationTokenSource? _suggestCts;
+
     // Checkbox filters map to nullable bools (null == "don't filter").
     private bool EmergencyOnly { get => _request.EmergencyOnly ?? false; set => _request.EmergencyOnly = value ? true : null; }
     private bool AvailableNowOnly { get => _request.AvailableNowOnly ?? false; set => _request.AvailableNowOnly = value ? true : null; }
@@ -110,17 +164,102 @@ else
         _towns = await Api.GetTownsAsync();
     }
 
-    private async Task OnKeyUp(KeyboardEventArgs e)
+    private async Task OnQueryInput(ChangeEventArgs e)
     {
+        _request.Query = e.Value?.ToString() ?? string.Empty;
+        await RequestSuggestionsAsync();
+    }
+
+    // Debounced typeahead: only the last keystroke in a ~180ms window actually hits the API.
+    private async Task RequestSuggestionsAsync()
+    {
+        _suggestCts?.Cancel();
+        _suggestCts = new CancellationTokenSource();
+        var token = _suggestCts.Token;
+        var term = _request.Query?.Trim() ?? string.Empty;
+
+        if (term.Length < 2)
+        {
+            _suggestions = new();
+            _showSuggestions = false;
+            return;
+        }
+
+        try
+        {
+            await Task.Delay(180, token);
+        }
+        catch (TaskCanceledException)
+        {
+            return; // superseded by a newer keystroke
+        }
+
+        var results = await Api.SearchSuggestionsAsync(term);
+        if (token.IsCancellationRequested) return;
+
+        _suggestions = results;
+        _activeSuggestion = -1;
+        _showSuggestions = results.Count > 0;
+        StateHasChanged();
+    }
+
+    private async Task OnQueryKeyDown(KeyboardEventArgs e)
+    {
+        if (_showSuggestions && _suggestions.Count > 0)
+        {
+            switch (e.Key)
+            {
+                case "ArrowDown":
+                    _activeSuggestion = Math.Min(_activeSuggestion + 1, _suggestions.Count - 1);
+                    return;
+                case "ArrowUp":
+                    _activeSuggestion = Math.Max(_activeSuggestion - 1, -1);
+                    return;
+                case "Escape":
+                    _showSuggestions = false;
+                    return;
+                case "Enter":
+                    if (_activeSuggestion >= 0)
+                    {
+                        SelectSuggestion(_suggestions[_activeSuggestion]);
+                        return;
+                    }
+                    break; // no highlight → fall through to a full search
+            }
+        }
+
         if (e.Key == "Enter") await SearchAsync();
     }
 
+    private void OnQueryFocus()
+    {
+        if (_suggestions.Count > 0) _showSuggestions = true;
+    }
+
+    private void OnQueryBlur() => _showSuggestions = false;
+
+    private void SelectSuggestion(ProviderSuggestion s)
+    {
+        _showSuggestions = false;
+        Nav.NavigateTo($"provider/{s.Id}");
+    }
+
+    private static string AvailabilityLabel(AvailabilityStatus status) => status switch
+    {
+        AvailabilityStatus.Available => "Available now",
+        AvailabilityStatus.Busy => "Busy",
+        _ => "Offline"
+    };
+
     private async Task SearchAsync()
     {
+        _showSuggestions = false;
         _loading = true;
         _results = await Api.SearchAsync(_request);
         _loading = false;
     }
+
+    public void Dispose() => _suggestCts?.Cancel();
 
     private Task ToggleNearMeAsync() => _nearMe ? ExitNearMeAsync() : UseMyLocationAsync();
 

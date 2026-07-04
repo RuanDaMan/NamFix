@@ -1,4 +1,5 @@
 using NamFix.Application.Data.Repositories;
+using NamFix.Application.Search;
 using NamFix.Shared.Domain;
 using NamFix.Shared.Dtos;
 using NamFix.Shared.Enums;
@@ -11,21 +12,30 @@ public interface IProviderService
     Task<ProviderDto?> GetForUserAsync(Guid userId);
     Task<ProviderDto> SaveAsync(Guid userId, SaveProviderRequest request);
     Task<PagedResult<ProviderSearchResult>> SearchAsync(ProviderSearchRequest request);
+
+    /// <summary>Typo/spacing-tolerant autocomplete suggestions for the search box dropdown.</summary>
+    Task<IReadOnlyList<ProviderSuggestion>> TypeaheadAsync(string? term, int take = 8);
 }
 
 public sealed class ProviderService : IProviderService
 {
+    // Fuzzy candidates fed to the SQL search are capped so a very loose query can't OR in a huge id list.
+    private const int MaxFuzzyIds = 100;
+
     private readonly IProviderRepository _providers;
     private readonly ITaxonomyRepository _taxonomy;
     private readonly IUserRepository _users;
     private readonly IRateCardRepository _rateCards;
+    private readonly IProviderSearchIndex _searchIndex;
 
-    public ProviderService(IProviderRepository providers, ITaxonomyRepository taxonomy, IUserRepository users, IRateCardRepository rateCards)
+    public ProviderService(IProviderRepository providers, ITaxonomyRepository taxonomy, IUserRepository users,
+        IRateCardRepository rateCards, IProviderSearchIndex searchIndex)
     {
         _providers = providers;
         _taxonomy = taxonomy;
         _users = users;
         _rateCards = rateCards;
+        _searchIndex = searchIndex;
     }
 
     public async Task<ProviderDto?> GetByIdAsync(Guid id)
@@ -77,11 +87,97 @@ public sealed class ProviderService : IProviderService
                 .Where(s => !string.IsNullOrWhiteSpace(s)));
 
         await _providers.UpsertAsync(provider, request.TownIds, tagIds, searchKeywords);
+
+        // The provider's searchable text just changed — drop the cached fuzzy index so it rebuilds.
+        _searchIndex.Invalidate();
         return await ToDtoAsync(provider);
     }
 
-    public Task<PagedResult<ProviderSearchResult>> SearchAsync(ProviderSearchRequest request) =>
-        _providers.SearchAsync(request);
+    public async Task<PagedResult<ProviderSearchResult>> SearchAsync(ProviderSearchRequest request)
+    {
+        // For a text query, pre-compute fuzzy matches so misspelled / oddly-spaced searches still
+        // return results; the repository OR's these ids with its SQL full-text predicate.
+        IReadOnlyCollection<Guid>? fuzzyIds = null;
+        if (!string.IsNullOrWhiteSpace(request.Query))
+            fuzzyIds = await FuzzyMatchIdsAsync(request.Query, MaxFuzzyIds);
+
+        return await _providers.SearchAsync(request, fuzzyIds);
+    }
+
+    public async Task<IReadOnlyList<ProviderSuggestion>> TypeaheadAsync(string? term, int take = 8)
+    {
+        var query = FuzzyMatcher.PrepareQuery(term);
+        // Require a couple of characters before suggesting anything, matching the old sproc's behaviour.
+        if (query.IsEmpty || query.Spaceless.Length < 2)
+            return Array.Empty<ProviderSuggestion>();
+
+        take = Math.Clamp(take, 1, 20);
+        var entries = await _searchIndex.GetEntriesAsync();
+
+        return RankByScore(query, entries)
+            .Take(take)
+            .Select(m => new ProviderSuggestion
+            {
+                Id = m.Entry.Id,
+                BusinessName = m.Entry.BusinessName,
+                PrimaryCategoryName = m.Entry.CategoryName,
+                PrimaryTownName = m.Entry.TownName,
+                RatingAverage = m.Entry.RatingAverage,
+                RatingCount = m.Entry.RatingCount,
+                IsVerified = m.Entry.IsVerified,
+                IsEmergencyCallout = m.Entry.IsEmergencyCallout,
+                Availability = (AvailabilityStatus)m.Entry.Availability,
+                MatchedTag = BestMatchedTag(query, m.Entry),
+            })
+            .ToList();
+    }
+
+    /// <summary>The tag that best matches the query, if a tag matched well — shown so the user sees why
+    /// a provider surfaced (e.g. "geyser" matching a plumber). Null when the name itself carried it.</summary>
+    private static string? BestMatchedTag(in FuzzyMatcher.PreparedQuery query, FuzzyEntry entry)
+    {
+        const double tagThreshold = 0.7;
+        string? best = null;
+        var bestScore = tagThreshold;
+        for (var i = 0; i < entry.Tags.Length; i++)
+        {
+            var score = FuzzyMatcher.ScoreTerm(query, entry.TagTokens[i]);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = entry.Tags[i];
+            }
+        }
+        return best;
+    }
+
+    /// <summary>Fuzzy-match the query against the cached index and return the best provider ids.</summary>
+    private async Task<IReadOnlyCollection<Guid>> FuzzyMatchIdsAsync(string term, int max)
+    {
+        var query = FuzzyMatcher.PrepareQuery(term);
+        if (query.IsEmpty) return Array.Empty<Guid>();
+
+        var entries = await _searchIndex.GetEntriesAsync();
+        return RankByScore(query, entries).Take(max).Select(m => m.Entry.Id).ToList();
+    }
+
+    /// <summary>Score entries, keep matches, and order by score then verified/rating for stable ranking.</summary>
+    private static IEnumerable<(FuzzyEntry Entry, double Score)> RankByScore(
+        in FuzzyMatcher.PreparedQuery query, IReadOnlyList<FuzzyEntry> entries)
+    {
+        var matches = new List<(FuzzyEntry Entry, double Score)>();
+        foreach (var entry in entries)
+        {
+            var score = FuzzyMatcher.Score(query, entry);
+            if (score >= FuzzyMatcher.MatchThreshold)
+                matches.Add((entry, score));
+        }
+
+        return matches
+            .OrderByDescending(m => m.Score)
+            .ThenByDescending(m => m.Entry.IsVerified)
+            .ThenByDescending(m => m.Entry.RatingAverage ?? 0m);
+    }
 
     private async Task<ProviderDto> ToDtoAsync(Provider p)
     {
