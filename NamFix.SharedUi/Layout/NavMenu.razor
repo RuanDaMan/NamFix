@@ -1,11 +1,13 @@
+@implements IDisposable
 @inject NamFixApiClient Api
 @inject NavigationManager Nav
 @inject ThemeService Theme
 @inject NotificationService Notifications
 
 <nav class="nf-nav">
-    <a class="nf-brand" href="">🔧 NamFix</a>
-    <div class="nf-nav-links">
+    <a class="nf-brand" href="" @onclick="CloseMenu">🔧 NamFix</a>
+
+    <div class="nf-nav-links @(_menuOpen ? "open" : "")">
         <ConnectionStatus />
         <button class="nf-theme-toggle" type="button" @onclick="ToggleThemeAsync"
                 title="@(Theme.IsDark ? "Switch to light mode" : "Switch to dark mode")"
@@ -36,14 +38,44 @@
                 <button class="nf-link-btn" @onclick="LogoutAsync">Log out</button>
             </Authorized>
             <NotAuthorized>
-                <a href="login">Log in</a>
-                <a class="nf-cta" href="register">Sign up</a>
+                <a class="nf-cta" href="login">Log in / Sign up</a>
             </NotAuthorized>
         </AuthorizeView>
     </div>
+
+    @* Mobile top-bar controls (hidden on desktop). The bell lives here rather than in the drawer so
+       notifications are one tap away and its panel drops from the top bar (no transformed ancestor,
+       so it can render as a full-width sheet). The desktop bell stays inline in .nf-nav-links. *@
+    <div class="nf-nav-mobile">
+        <AuthorizeView>
+            <Authorized>
+                <NotificationsBell />
+            </Authorized>
+            <NotAuthorized>
+                <a class="nf-nav-auth" href="login" aria-label="Log in or sign up" title="Log in or sign up">👤</a>
+            </NotAuthorized>
+        </AuthorizeView>
+        <button class="nf-hamburger" type="button"
+                @onclick="ToggleMenu" aria-label="Menu" aria-expanded="@(_menuOpen ? "true" : "false")">
+            <span></span><span></span><span></span>
+        </button>
+    </div>
+
+    @* Backdrop behind the mobile drawer; tapping it closes the menu. Kept INSIDE <nav> so it shares
+       the drawer's stacking context — otherwise the sticky nav's own stacking context traps the
+       drawer beneath a root-level backdrop and swallows taps on the links. *@
+    <div class="nf-nav-backdrop @(_menuOpen ? "open" : "")" @onclick="CloseMenu"></div>
 </nav>
 
 @code {
+    private bool _menuOpen;
+
+    protected override void OnInitialized()
+    {
+        // Close the drawer whenever navigation happens (covers taps on any nav link).
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
@@ -51,6 +83,22 @@
             // Sync C# theme state with what the inline script already applied, then render the icon.
             await Theme.InitializeAsync();
             StateHasChanged();
+        }
+    }
+
+    private void ToggleMenu() => _menuOpen = !_menuOpen;
+
+    private void CloseMenu()
+    {
+        if (_menuOpen) _menuOpen = false;
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        if (_menuOpen)
+        {
+            _menuOpen = false;
+            _ = InvokeAsync(StateHasChanged);
         }
     }
 
@@ -66,4 +114,6 @@
         await Api.LogoutAsync();
         Nav.NavigateTo("");
     }
+
+    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
 }

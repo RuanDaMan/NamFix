@@ -20,7 +20,8 @@ NamFix.sln
 ├── NamFix.Web           Blazor WASM— standalone front-end host. Depends on SharedUi + Shared.
 ├── NamFix.Api           ASP.NET API— Web API backend (REST + SignalR) only. Depends on Application,
 │                                     Shared. Does NOT reference or host Web.
-└── NamFix.Mobile        (scaffold) — future .NET MAUI Blazor Hybrid. NOT in the solution yet; see its README.
+└── NamFix.Mobile        .NET MAUI Blazor Hybrid (Android) — hosts the SharedUi RCL in a BlazorWebView.
+                         Depends on SharedUi + Shared. In the solution (needs the maui-android workload). See its README.
 ```
 
 ### Dependency direction (arrows point to the dependency)
@@ -112,8 +113,10 @@ legacy `usp_ProviderTypeahead` sproc is superseded by this in-app path.
   along with the typed `NamFixApiClient`, auth state provider, and map/geolocation services.
 - `NamFix.Web` is a thin host: its `App.razor` pulls the RCL routes in via
   `AdditionalAssemblies`, and `index.html` loads Leaflet + the RCL's `namfix.css`.
-- The future `NamFix.Mobile` (MAUI Blazor Hybrid) renders the same RCL inside a `BlazorWebView`.
-  See `NamFix.Mobile/README.md` for the exact wiring. Only platform-specific implementations differ.
+- `NamFix.Mobile` (MAUI Blazor Hybrid, Android) renders the same RCL inside a `BlazorWebView`. Its
+  `MauiProgram.cs` calls `AddNamFixSharedUi()` and `Components/Routes.razor` pulls the routes in via
+  `AdditionalAssemblies` — same pattern as `NamFix.Web`. Only platform-specific implementations differ
+  (`ITokenStore` → `SecureStorageTokenStore`; API base URL in `MobileConfig.cs`). See its README.
 
 ---
 
@@ -123,7 +126,7 @@ legacy `usp_ProviderTypeahead` sproc is superseded by this in-app path.
 |------------------------|----------------------------------------------------|------------------------------|
 | `IMapService`          | `LeafletMapService` (SharedUi, JS interop)         | reused as-is (BlazorWebView) |
 | `IGeolocationService`  | `BrowserGeolocationService` (SharedUi)             | reused as-is                 |
-| `ITokenStore`          | `LocalStorageTokenStore` (**NamFix.Web**)          | SecureStorage-backed         |
+| `ITokenStore`          | `LocalStorageTokenStore` (**NamFix.Web**)          | `SecureStorageTokenStore` (**NamFix.Mobile**) |
 | `ISecureStorage`       | (not yet needed)                                   | MAUI SecureStorage           |
 | `IPaymentService`      | `StubPaymentService` (**NamFix.Application**)       | DPO / PayToday / bank EFT    |
 

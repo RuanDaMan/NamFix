@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http.Connections.Client;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
 using NamFix.Shared.Contracts;
@@ -20,16 +21,27 @@ public sealed class NotificationService : IAsyncDisposable
     private readonly ITokenStore _tokens;
     private readonly NamFixApiClient _api;
     private readonly ILogger<NotificationService> _logger;
+    private readonly Action<HttpConnectionOptions>? _configureConnection;
 
     private HubConnection? _connection;
     private bool _starting;
 
-    public NotificationService(Uri apiBaseAddress, ITokenStore tokens, NamFixApiClient api, ILogger<NotificationService> logger)
+    /// <param name="configureConnection">
+    /// Optional host-specific tweak to the SignalR HTTP connection (e.g. the MAUI app trusting the
+    /// local dev HTTPS certificate). Left null on Blazor WebAssembly, where the browser owns TLS.
+    /// </param>
+    public NotificationService(
+        Uri apiBaseAddress,
+        ITokenStore tokens,
+        NamFixApiClient api,
+        ILogger<NotificationService> logger,
+        Action<HttpConnectionOptions>? configureConnection = null)
     {
         _hubUri = new Uri(apiBaseAddress, "hubs/notifications");
         _tokens = tokens;
         _api = api;
         _logger = logger;
+        _configureConnection = configureConnection;
     }
 
     /// <summary>Most recent notifications, newest first.</summary>
@@ -64,7 +76,10 @@ public sealed class NotificationService : IAsyncDisposable
         {
             _connection = new HubConnectionBuilder()
                 .WithUrl(_hubUri, options =>
-                    options.AccessTokenProvider = async () => await _tokens.GetAccessTokenAsync())
+                {
+                    options.AccessTokenProvider = async () => await _tokens.GetAccessTokenAsync();
+                    _configureConnection?.Invoke(options);
+                })
                 .WithAutomaticReconnect()
                 .Build();
 

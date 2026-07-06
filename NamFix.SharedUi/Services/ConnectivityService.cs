@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http.Connections.Client;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
 
@@ -13,16 +14,25 @@ public sealed class ConnectivityService : IAsyncDisposable
 {
     private readonly Uri _hubUri;
     private readonly ILogger<ConnectivityService> _logger;
+    private readonly Action<HttpConnectionOptions>? _configureConnection;
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(5);
 
     private HubConnection? _connection;
     private bool _connecting;
     private bool _stateKnown;
 
-    public ConnectivityService(Uri apiBaseAddress, ILogger<ConnectivityService> logger)
+    /// <param name="configureConnection">
+    /// Optional host-specific tweak to the SignalR HTTP connection (e.g. the MAUI app trusting the
+    /// local dev HTTPS certificate). Left null on Blazor WebAssembly, where the browser owns TLS.
+    /// </param>
+    public ConnectivityService(
+        Uri apiBaseAddress,
+        ILogger<ConnectivityService> logger,
+        Action<HttpConnectionOptions>? configureConnection = null)
     {
         _hubUri = new Uri(apiBaseAddress, "hubs/status");
         _logger = logger;
+        _configureConnection = configureConnection;
     }
 
     /// <summary>True when the backend is currently reachable.</summary>
@@ -37,7 +47,7 @@ public sealed class ConnectivityService : IAsyncDisposable
         if (_connection is not null) return;
 
         _connection = new HubConnectionBuilder()
-            .WithUrl(_hubUri)
+            .WithUrl(_hubUri, options => _configureConnection?.Invoke(options))
             .Build();
 
         _connection.Closed += OnClosedAsync;

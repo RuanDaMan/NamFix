@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>NamFix</title>
+    <base href="/" />
+
+    <!-- Apply the persisted theme before anything renders so there's no flash. Defaults to dark. -->
+    <script>
+        (function () {
+            try {
+                var t = localStorage.getItem('namfix.theme');
+                document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+            } catch (e) { /* localStorage unavailable — keep the dark default on <html> */ }
+        })();
+    </script>
+
+    <!-- Leaflet (maps) from CDN -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <!-- Shared UI styles shipped from the NamFix.SharedUi RCL (same as NamFix.Web) -->
+    <link rel="stylesheet" href="_content/NamFix.SharedUi/css/namfix.css" />
+</head>
+
+<body>
+
+    <div class="status-bar-safe-area"></div>
+
+    <div id="app">
+        <svg class="loading-progress">
+            <circle r="40%" cx="50%" cy="50%" />
+            <circle r="40%" cx="50%" cy="50%" />
+        </svg>
+        <div class="loading-progress-text"></div>
+    </div>
+
+    <div id="blazor-error-ui" data-nosnippet>
+        An unhandled error has occurred.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">🗙</span>
+    </div>
+
+    <script src="_framework/blazor.webview.js" autostart="false"></script>
+    <!-- SharedUi browser helpers (file download, etc.) -->
+    <script src="_content/NamFix.SharedUi/js/namfix.js"></script>
+
+</body>
+
+</html>

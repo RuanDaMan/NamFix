@@ -5,8 +5,9 @@
 @inject ApiErrorNotifier Errors
 @inject NavigationManager Nav
 @inject ILogger<MainLayout> Logger
+@inject AppPlatformInfo Platform
 
-<div class="nf-app">
+<div class="nf-app" data-platform="@Platform.Slug">
     <NavMenu />
     <main class="nf-main">
         <LoggingErrorBoundary @ref="_errorBoundary">

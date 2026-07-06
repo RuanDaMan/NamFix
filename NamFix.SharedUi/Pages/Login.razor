@@ -1,40 +1,108 @@
 @page "/login"
+@page "/register"
 @inject NamFixApiClient Api
 @inject NavigationManager Nav
 
-<PageTitle>Log in — NamFix</PageTitle>
+<PageTitle>@(_mode == Mode.Login ? "Log in" : "Sign up") — NamFix</PageTitle>
 
 <div class="nf-form-card">
-    <h2>Log in</h2>
-    <EditForm Model="_model" OnValidSubmit="SubmitAsync">
-        <DataAnnotationsValidator />
-        <label>Email</label>
-        <InputText @bind-Value="_model.Email" type="email" />
-        <label>Password</label>
-        <InputText @bind-Value="_model.Password" type="password" />
+    @* One page, two modes — the tabs swap between logging in and creating an account. *@
+    <div class="nf-auth-tabs" role="tablist">
+        <button type="button" class="@TabClass(Mode.Login)" role="tab"
+                aria-selected="@(_mode == Mode.Login)" @onclick="() => SetMode(Mode.Login)">Log in</button>
+        <button type="button" class="@TabClass(Mode.Signup)" role="tab"
+                aria-selected="@(_mode == Mode.Signup)" @onclick="() => SetMode(Mode.Signup)">Sign up</button>
+    </div>
 
-        @if (_error is not null)
-        {
-            <p class="nf-error">@_error</p>
-        }
-        <button class="nf-cta" type="submit" disabled="@_busy">@(_busy ? "…" : "Log in")</button>
-    </EditForm>
-    <p class="nf-muted">No account? <a href="register">Sign up</a></p>
-    <p class="nf-muted"><a href="forgot-password">Forgot your password?</a></p>
+    @if (_mode == Mode.Login)
+    {
+        <EditForm Model="_login" OnValidSubmit="LoginAsync">
+            <DataAnnotationsValidator />
+            <label>Email</label>
+            <InputText @bind-Value="_login.Email" type="email" autocomplete="username" />
+            <label>Password</label>
+            <InputText @bind-Value="_login.Password" type="password" autocomplete="current-password" />
+
+            @if (_error is not null)
+            {
+                <p class="nf-error">@_error</p>
+            }
+            <button class="nf-cta" type="submit" disabled="@_busy">@(_busy ? "…" : "Log in")</button>
+        </EditForm>
+        <p class="nf-muted"><a href="forgot-password">Forgot your password?</a></p>
+    }
+    else
+    {
+        <EditForm Model="_register" OnValidSubmit="RegisterAsync">
+            <DataAnnotationsValidator />
+
+            <label>I am…</label>
+            <div class="nf-role-toggle">
+                <button type="button" class="@RoleClass(UserRole.Client)" @onclick="() => _register.Role = UserRole.Client">Looking for help</button>
+                <button type="button" class="@RoleClass(UserRole.ServiceProvider)" @onclick="() => _register.Role = UserRole.ServiceProvider">A tradesperson</button>
+            </div>
+
+            <label>Full name</label>
+            <InputText @bind-Value="_register.FullName" />
+            <label>Email</label>
+            <InputText @bind-Value="_register.Email" type="email" autocomplete="email" />
+            <label>Phone (optional)</label>
+            <InputText @bind-Value="_register.PhoneNumber" />
+            <label>Password</label>
+            <InputText @bind-Value="_register.Password" type="password" autocomplete="new-password" />
+
+            @if (_error is not null)
+            {
+                <p class="nf-error">@_error</p>
+            }
+            <button class="nf-cta" type="submit" disabled="@_busy">@(_busy ? "…" : "Create account")</button>
+        </EditForm>
+    }
 </div>
 
 @code {
-    private LoginModel _model = new();
+    private enum Mode { Login, Signup }
+
+    private Mode _mode = Mode.Login;
+    private readonly LoginModel _login = new();
+    private readonly RegisterRequest _register = new();
     private string? _error;
     private bool _busy;
 
-    private async Task SubmitAsync()
+    protected override void OnInitialized()
+    {
+        // Arriving via /register (e.g. an old link) opens straight on the Sign up tab.
+        if (Nav.ToBaseRelativePath(Nav.Uri).TrimStart('/').StartsWith("register", StringComparison.OrdinalIgnoreCase))
+            _mode = Mode.Signup;
+    }
+
+    private void SetMode(Mode mode)
+    {
+        if (_mode == mode) return;
+        _mode = mode;
+        _error = null;
+    }
+
+    private string TabClass(Mode mode) => _mode == mode ? "nf-auth-tab on" : "nf-auth-tab";
+    private string RoleClass(UserRole role) => _register.Role == role ? "nf-role on" : "nf-role";
+
+    private async Task LoginAsync()
     {
         _busy = true;
         _error = null;
-        _error = await Api.LoginAsync(new LoginRequest { Email = _model.Email, Password = _model.Password });
+        _error = await Api.LoginAsync(new LoginRequest { Email = _login.Email, Password = _login.Password });
         _busy = false;
         if (_error is null) Nav.NavigateTo("");
+    }
+
+    private async Task RegisterAsync()
+    {
+        _busy = true;
+        _error = null;
+        _error = await Api.RegisterAsync(_register);
+        _busy = false;
+        if (_error is null)
+            Nav.NavigateTo(_register.Role == UserRole.ServiceProvider ? "provider/dashboard" : "");
     }
 
     private sealed class LoginModel

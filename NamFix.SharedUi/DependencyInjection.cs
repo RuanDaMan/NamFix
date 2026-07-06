@@ -12,8 +12,13 @@ namespace NamFix.SharedUi;
 /// </summary>
 public static class DependencyInjection
 {
-    public static IServiceCollection AddNamFixSharedUi(this IServiceCollection services)
+    public static IServiceCollection AddNamFixSharedUi(
+        this IServiceCollection services, HostPlatform platform = HostPlatform.Web)
     {
+        // Which host is rendering us (web vs MAUI mobile). Lets the shared UI adapt at the edges
+        // (status-bar safe areas, touch affordances) without referencing the host project.
+        services.AddSingleton(new AppPlatformInfo(platform));
+
         services.AddAuthorizationCore();
         services.AddScoped<NamFixAuthStateProvider>();
         services.AddScoped<AuthenticationStateProvider>(sp => sp.GetRequiredService<NamFixAuthStateProvider>());

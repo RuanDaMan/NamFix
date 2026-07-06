@@ -59,11 +59,19 @@
                 </ul>
             }
         </div>
-        <button class="nf-cta" @onclick="SearchAsync">Search</button>
+        <button class="nf-cta nf-search-btn" @onclick="SearchAsync" aria-label="Search" title="Search">🔍</button>
     </div>
 </section>
 
-<section class="nf-filters">
+@* Mobile-only toggle: collapse the filter block so results aren't pushed off-screen. Hidden on
+   desktop (CSS), where the filters stay expanded. *@
+<button class="nf-filters-toggle" type="button" @onclick="() => _filtersOpen = !_filtersOpen"
+        aria-expanded="@(_filtersOpen ? "true" : "false")">
+    <span>⚙️ Filters@(ActiveFilterCount > 0 ? $" ({ActiveFilterCount})" : "")</span>
+    <span class="nf-filters-caret">@(_filtersOpen ? "▲" : "▼")</span>
+</button>
+
+<section class="nf-filters @(_filtersOpen ? "open" : "")">
     <select @bind="_request.CategoryId" @bind:after="SearchAsync">
         <option value="">All categories</option>
         @foreach (var c in _categories)
@@ -147,6 +155,20 @@ else
     private bool _loading;
     private bool _showMap;
     private bool _nearMe;
+    private bool _filtersOpen;
+
+    // Count of active filters, surfaced on the mobile "Filters" toggle so users know some are set
+    // while the panel is collapsed.
+    private int ActiveFilterCount =>
+        (_request.CategoryId is not null ? 1 : 0) +
+        (_request.TownId is not null ? 1 : 0) +
+        (_request.EmergencyOnly == true ? 1 : 0) +
+        (_request.AvailableNowOnly == true ? 1 : 0) +
+        (_request.MinPrice is not null ? 1 : 0) +
+        (_request.MaxPrice is not null ? 1 : 0) +
+        (_request.MinYearsExperience is not null ? 1 : 0) +
+        (_request.MaxResponseMinutes is not null ? 1 : 0) +
+        (_nearMe ? 1 : 0);
 
     // Typeahead dropdown state.
     private List<ProviderSuggestion> _suggestions = new();
