@@ -1,0 +1,13 @@
+// Copy this file to `MobileConfig.Local.cs` (which is gitignored) and set your PC's LAN IP to run
+// the app on a PHYSICAL phone. The emulator does NOT need this — it uses the 10.0.2.2 default.
+//
+// Find your IP with `ipconfig` (the IPv4 address, e.g. 192.168.1.50). The phone and PC must be on
+// the same Wi-Fi, the API must be running (it binds 0.0.0.0:7111), and the PC firewall must allow
+// TCP 7111. The dev HTTPS cert is trusted automatically for private-LAN IPs (see DevHttps).
+
+namespace NamFix.Mobile;
+
+public static partial class MobileConfig
+{
+    static partial void SetLocalApiBaseUrl(ref string? url) => url = "https://192.168.1.50:7111/";
+}

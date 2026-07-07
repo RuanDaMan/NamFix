@@ -110,14 +110,24 @@ try
         });
     builder.Services.AddAuthorization();
 
-    // CORS for running the WASM client on a different origin during development. SignalR needs
-    // AllowCredentials, which is incompatible with a wildcard origin, so we list explicit origins.
+    // CORS for running the WASM client on a different origin (localhost, a LAN IP, or a device
+    // hostname). SignalR needs AllowCredentials, which forbids a literal "*" origin, so when the
+    // allowlist is empty or contains "*" we reflect whatever origin calls in instead of listing it.
+    // This is what lets the Web app work over the LAN with no per-machine config; set an explicit
+    // Cors:Origins list to lock it down for a real deployment.
     builder.Services.AddCors(options =>
-        options.AddDefaultPolicy(p => p
-            .WithOrigins(builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? Array.Empty<string>())
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials()));
+        options.AddDefaultPolicy(p =>
+        {
+            var origins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? Array.Empty<string>();
+            // In Development, reflect any origin so the Web app works over localhost or the LAN with
+            // no per-machine config. In Production, honour the explicit allowlist ("*" also reflects).
+            if (builder.Environment.IsDevelopment() || origins.Length == 0 || origins.Contains("*"))
+                p.SetIsOriginAllowed(_ => true);
+            else
+                p.WithOrigins(origins);
+
+            p.AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+        }));
 
     var app = builder.Build();
 
