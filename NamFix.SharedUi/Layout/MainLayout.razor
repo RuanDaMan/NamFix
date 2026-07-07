@@ -5,6 +5,7 @@
 @inject NotificationService Notifications
 @inject ApiErrorNotifier Errors
 @inject NavigationManager Nav
+@inject NavigationHistory History
 @inject ILogger<MainLayout> Logger
 @inject AppPlatformInfo Platform
 @inject IJSRuntime JS
@@ -44,8 +45,19 @@
     }
 </div>
 
+@* Connecting loader — shown briefly on a cold start so login doesn't flash "you're offline". *@
+@if (Connectivity.Phase == ConnectivityPhase.Connecting)
+{
+    <div class="nf-offline">
+        <div class="nf-offline-card">
+            <div class="nf-offline-spinner"></div>
+            <h2>Getting things ready…</h2>
+            <p>Connecting to NamFix. This will only take a moment.</p>
+        </div>
+    </div>
+}
 @* Offline overlay — shown while the backend is unreachable, auto-clears the moment it returns. *@
-@if (!Connectivity.IsOnline)
+else if (Connectivity.Phase == ConnectivityPhase.Offline)
 {
     <div class="nf-offline">
         <div class="nf-offline-card">
@@ -60,11 +72,14 @@
     private readonly List<Toast> _toasts = new();
     private LoggingErrorBoundary? _errorBoundary;
     private DotNetObjectReference<MainLayout>? _selfRef;
+    private bool _jsReady;
 
     protected override void OnInitialized()
     {
         Errors.ErrorReported += OnErrorReported;
         Connectivity.StateChanged += OnConnectivityChangedAsync;
+        // Keep the mobile back button's "can go back" state in sync with the in-app history stack.
+        History.Changed += OnHistoryChanged;
         // Clear a caught error automatically when the user navigates away from the failed page.
         Nav.LocationChanged += OnLocationChanged;
         // Fire-and-forget: the connect/retry loop runs for the app's lifetime and never returns while
@@ -92,10 +107,14 @@
         {
             _selfRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("namfix.onResume", _selfRef);
+            // Register the hardware-back hook (used by the MAUI host) and seed its "can go back" state.
+            await JS.InvokeVoidAsync("namfix.registerBack", _selfRef);
+            _jsReady = true;
+            await JS.InvokeVoidAsync("namfix.setCanGoBack", History.CanGoBack);
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Failed to register the app-resume reconnect hook.");
+            Logger.LogWarning(ex, "Failed to register the app-resume / back-button hooks.");
         }
     }
 
@@ -105,6 +124,20 @@
     {
         await Connectivity.PokeAsync();
         await Notifications.ReconnectIfNeededAsync();
+    }
+
+    /// <summary>Called from JS (mobile hardware back). Navigates to the previous screen; returns whether it did.</summary>
+    [JSInvokable]
+    public Task<bool> NavigateBack() => Task.FromResult(History.GoBack());
+
+    private void OnHistoryChanged()
+    {
+        if (!_jsReady) return;
+        _ = InvokeAsync(async () =>
+        {
+            try { await JS.InvokeVoidAsync("namfix.setCanGoBack", History.CanGoBack); }
+            catch (Exception ex) { Logger.LogWarning(ex, "Failed to push back-button state to JS."); }
+        });
     }
 
     private void Recover() => _errorBoundary?.Recover();
@@ -137,6 +170,7 @@
     {
         Errors.ErrorReported -= OnErrorReported;
         Connectivity.StateChanged -= OnConnectivityChangedAsync;
+        History.Changed -= OnHistoryChanged;
         Nav.LocationChanged -= OnLocationChanged;
         _selfRef?.Dispose();
     }

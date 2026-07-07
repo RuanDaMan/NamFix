@@ -194,17 +194,36 @@ public sealed class JobRequestService : IJobService
 
     public Task<List<JobRequestDto>> ListForUserAsync(Guid userId) => _jobs.ListDtosForUserAsync(userId);
 
-    public Task<List<JobRequestDto>> ListOpenForProviderAsync(Guid providerUserId) =>
-        _jobs.ListOpenForProviderAsync(providerUserId);
+    public async Task<List<JobRequestDto>> ListOpenForProviderAsync(Guid providerUserId)
+    {
+        var jobs = await _jobs.ListOpenForProviderAsync(providerUserId);
+        if (jobs.Count == 0) return jobs;
+
+        // Attach the provider's own response state so the board can show "you quoted …" per job.
+        var responses = await _jobs.ListProviderResponsesAsync(providerUserId, jobs.Select(j => j.Id).ToList());
+        var byJob = responses.ToDictionary(r => r.JobRequestId);
+        return jobs
+            .Select(j => byJob.TryGetValue(j.Id, out var r)
+                ? j with { MyResponseStatus = r.Status, MyQuoteAmount = r.QuoteAmount }
+                : j)
+            .ToList();
+    }
 
     public async Task<JobRequestDto?> GetAsync(Guid userId, Guid jobId)
     {
         var job = await _jobs.GetByIdAsync(jobId);
         if (job is null) return null;
-        // Participants can always view; an invited provider can view an open job they can respond to.
-        if (IsParticipant(job, userId) || await IsInvitedProviderAsync(job, userId))
+
+        // Participants (client / chosen provider) see the full booking view.
+        if (IsParticipant(job, userId))
             return await _jobs.GetDtoByIdAsync(jobId);
-        return null;
+
+        // An invited provider (not chosen) can view the job, enriched with their own response state so
+        // the detail page can show what they quoted rather than the client-facing "gathering quotes".
+        var response = await _jobs.GetResponseForProviderAsync(jobId, userId);
+        if (response is null) return null;
+        var dto = await _jobs.GetDtoByIdAsync(jobId);
+        return dto is null ? null : dto with { MyResponseStatus = response.Status, MyQuoteAmount = response.QuoteAmount };
     }
 
     // ---- Quotes / matching ----
@@ -651,9 +670,6 @@ public sealed class JobRequestService : IJobService
             throw new InvalidOperationException("You don't have access to this booking.");
         return job;
     }
-
-    private async Task<bool> IsInvitedProviderAsync(JobRequest job, Guid userId) =>
-        await _jobs.GetResponseForProviderAsync(job.Id, userId) is not null;
 
     private async Task<JobRequestDto> PersistAsync(JobRequest job)
     {

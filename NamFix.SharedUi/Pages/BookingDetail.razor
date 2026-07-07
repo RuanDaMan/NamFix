@@ -21,11 +21,69 @@ else
     <div class="nf-booking">
         <div class="nf-profile-head">
             <div>
-                <h1>@(IsProvider ? _booking.ClientName : (_booking.ProviderBusinessName ?? "Your job request"))</h1>
+                <h1>@(IsClient ? (_booking.ProviderBusinessName ?? "Your job request") : _booking.ClientName)</h1>
                 <p class="nf-muted">@_booking.ServiceDescription</p>
             </div>
-            <span class="nf-badge @StatusClass(_booking.Status)">@StatusLabel(_booking.Status)</span>
+            @if (IsInvitedProvider)
+            {
+                <span class="nf-badge @MyStatusClass">@MyStatusBadge</span>
+            }
+            else
+            {
+                <span class="nf-badge @StatusClass(_booking.Status)">@StatusLabel(_booking.Status)</span>
+            }
         </div>
+
+        @* ---- Provider invited to a broadcast job (not the chosen one): their own response + quote ---- *@
+        @if (IsInvitedProvider)
+        {
+            <section class="nf-booking-section">
+                <p class="nf-muted">
+                    @(_booking.CategoryName ?? "Any category") · @(_booking.TownName ?? "Any town")
+                    @if (_booking.Urgency == JobUrgency.Urgent)
+                    {
+                        <span class="nf-badge emergency">Urgent</span>
+                    }
+                </p>
+
+                <h3>Your response</h3>
+
+                @if (_booking.Status == JobStatus.Cancelled)
+                {
+                    <p class="nf-muted">The client cancelled this request.</p>
+                }
+                else if (!JobStillOpen)
+                {
+                    <p class="nf-muted">This job is no longer open — it went to another provider.</p>
+                }
+                else
+                {
+                    @if (_booking.MyResponseStatus == JobResponseStatus.Quoted)
+                    {
+                        <p class="nf-success">✓ You quoted @_booking.Currency @(_booking.MyQuoteAmount?.ToString("0.00")).</p>
+                    }
+                    else if (_booking.MyResponseStatus == JobResponseStatus.Interested)
+                    {
+                        <p class="nf-success">✓ You registered interest.</p>
+                    }
+                    else
+                    {
+                        <p class="nf-muted">You haven't responded to this job yet.</p>
+                    }
+
+                    <div class="nf-booking-propose">
+                        <label>@(_booking.MyResponseStatus == JobResponseStatus.Quoted ? "Update your quote" : "Send a quote")</label>
+                        <div class="nf-pay-row">
+                            <input type="number" min="0.01" step="0.01" placeholder="Quote (NAD)" @bind="_quoteAmount" />
+                            <input placeholder="Note (optional)" @bind="_quoteNote" />
+                        </div>
+                        <div class="nf-booking-actions">
+                            <button class="nf-cta" @onclick="SubmitQuoteAsync" disabled="@(_quoteAmount <= 0)">Send quote</button>
+                        </div>
+                    </div>
+                }
+            </section>
+        }
 
         @* ---- Quotes: client reviews provider responses and picks one ---- *@
         @if (IsClient && _booking.Status is JobStatus.Requested or JobStatus.Quoted)
@@ -77,8 +135,9 @@ else
             </section>
         }
 
-        @* Schedule/delivery/chat only apply once a provider is chosen (not a broadcast still gathering quotes). *@
-        @if (ShowJobDetails)
+        @* Schedule/delivery/chat only apply once a provider is chosen (not a broadcast still gathering
+           quotes), and only to the two participants — never a provider merely invited to quote. *@
+        @if (ShowJobDetails && (IsClient || IsProvider))
         {
         @* ---- Scheduling: the back-and-forth time negotiation ---- *@
         <section class="nf-booking-section">
@@ -336,12 +395,18 @@ else
     private decimal _invoiceAmount;
     private string? _invoiceNotes;
     private string? _invoiceFileName;
+    private decimal _quoteAmount;
+    private string? _quoteNote;
     private string _draft = string.Empty;
     private int _reviewRating = 5;
     private string? _reviewComment;
 
     private bool IsProvider => _booking is not null && _booking.ProviderUserId == _userId;
     private bool IsClient => _booking is not null && _booking.ClientUserId == _userId;
+    // A provider invited to a broadcast job who isn't (or isn't yet) the chosen provider. The server
+    // only sets MyResponseStatus when a provider views a job they were invited to.
+    private bool IsInvitedProvider => _booking is not null && !IsClient && !IsProvider && _booking.MyResponseStatus is not null;
+    private bool JobStillOpen => _booking is not null && _booking.Status is JobStatus.Requested or JobStatus.Quoted;
     private bool IsActive => _booking is not null &&
         _booking.Status is not (JobStatus.Paid or JobStatus.Reviewed or JobStatus.Cancelled
             or JobStatus.Declined or JobStatus.NoShow);
@@ -374,11 +439,18 @@ else
     {
         _loading = true;
         _booking = await Api.GetBookingAsync(Id);
-        _messages = _booking is null || !ShowJobDetails ? new() : await Api.GetBookingMessagesAsync(Id);
+        // Chat is participant-only (client / chosen provider) — never load it for a merely-invited
+        // provider, whose messages request the server would (correctly) reject.
+        _messages = _booking is not null && ShowJobDetails && (IsClient || IsProvider)
+            ? await Api.GetBookingMessagesAsync(Id)
+            : new();
         // The client sees quotes while the job is still gathering them.
         _responses = _booking is not null && IsClient && !ShowJobDetails
             ? await Api.GetJobResponsesAsync(Id)
             : new();
+        // Pre-fill the provider's quote box with what they last quoted, so "update quote" starts there.
+        if (IsInvitedProvider && _quoteAmount <= 0 && _booking!.MyQuoteAmount is { } q)
+            _quoteAmount = q;
         _loading = false;
         StateHasChanged();
     }
@@ -560,6 +632,17 @@ else
 
     private async Task PayAsync() => Apply(await Api.PayBookingAsync(Id));
 
+    private async Task SubmitQuoteAsync()
+    {
+        if (_quoteAmount <= 0) return;
+        var ok = await Api.SubmitQuoteAsync(Id, new SubmitQuoteRequest { Amount = _quoteAmount, Note = _quoteNote });
+        if (ok is not null)
+        {
+            _quoteNote = null;
+            await LoadAsync();
+        }
+    }
+
     private async Task AcceptQuoteAsync(Guid responseId)
     {
         var updated = await Api.AcceptQuoteAsync(Id, responseId);
@@ -619,6 +702,21 @@ else
         JobStatus.Cancelled or JobStatus.Declined or JobStatus.NoShow => "avail-busy",
         _ => "verified"
     };
+
+    // Provider-facing badge for a job they were invited to quote on (never the client's "gathering quotes").
+    private string MyStatusBadge =>
+        _booking is null ? "" :
+        _booking.Status == JobStatus.Cancelled ? "Cancelled" :
+        !JobStillOpen ? "Not selected" :
+        _booking.MyResponseStatus == JobResponseStatus.Quoted ? "Quote sent" :
+        _booking.MyResponseStatus == JobResponseStatus.Interested ? "Interest sent" :
+        "New request";
+
+    private string MyStatusClass =>
+        _booking is null ? "verified" :
+        _booking.Status == JobStatus.Cancelled || !JobStillOpen ? "avail-busy" :
+        _booking.MyResponseStatus is JobResponseStatus.Quoted or JobResponseStatus.Interested ? "avail-available" :
+        "verified";
 
     public void Dispose()
     {

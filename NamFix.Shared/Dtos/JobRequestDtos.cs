@@ -136,6 +136,13 @@ public record JobRequestDto
     /// <summary>Number of provider responses (quotes/interest) received — for the client's list badge.</summary>
     public int ResponseCount { get; init; }
 
+    /// <summary>The viewing provider's own response state on this job (null unless a provider is viewing
+    /// a job they were invited to). Lets the Job board / detail show "you quoted …" instead of a blank.</summary>
+    public JobResponseStatus? MyResponseStatus { get; init; }
+
+    /// <summary>The amount the viewing provider quoted, when they have quoted.</summary>
+    public decimal? MyQuoteAmount { get; init; }
+
     public DateTime CreatedAtUtc { get; init; }
     public DateTime UpdatedAtUtc { get; init; }
 }

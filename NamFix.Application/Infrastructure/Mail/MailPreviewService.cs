@@ -130,9 +130,11 @@ public sealed class MailPreviewService : IMailPreviewService
         var unsubscribeUrl =
             $"{_app.ApiBaseUrl.TrimEnd('/')}/api/email/unsubscribe?token=SAMPLE-TOKEN";
 
-        var bodyHtml = $"<p>{WebUtility.HtmlEncode(message)}</p>";
+        var followUp = NotificationDispatcher.FollowUp(type);
+        var bodyHtml = NotificationDispatcher.BuildBodyHtml("there", message, followUp);
+        var bodyText = NotificationDispatcher.BuildBodyText("there", message, followUp);
         var html = _templates.Render(title, bodyHtml, ctaText, ctaUrl, unsubscribeUrl, preheader: message);
-        var text = _templates.PlainText(title, message, ctaUrl, unsubscribeUrl);
+        var text = _templates.PlainText(title, bodyText, ctaUrl, unsubscribeUrl);
 
         return new Sample($"[TEST] {title}", html, text, title);
     }
@@ -145,13 +147,15 @@ public sealed class MailPreviewService : IMailPreviewService
         var hours = Math.Max(1, _app.PasswordResetTokenHours);
 
         var bodyHtml =
-            "<p>Hi there,</p>" +
-            "<p>We received a request to reset your NamFix password. Click the button below to choose a new one. " +
-            $"This link expires in {hours} hour(s).</p>" +
-            "<p style=\"color:#6b7280;font-size:13px;\">If you didn't request this, you can safely ignore this email — your password won't change.</p>";
+            "<p style=\"margin:0 0 14px 0;\">Hi there,</p>" +
+            "<p style=\"margin:0 0 14px 0;\">We received a request to reset the password for your NamFix account. " +
+            "Click the button below to choose a new password and get back to finding trusted tradespeople.</p>" +
+            $"<p style=\"margin:0 0 14px 0;color:{EmailTemplateRenderer.MutedColor};font-size:14px;\">For your security, this link expires in {hours} hour(s) and can only be used once.</p>" +
+            $"<p style=\"margin:0;color:{EmailTemplateRenderer.MutedColor};font-size:13px;\">If you didn't request this, you can safely ignore this email — your password won't change, and no one else can see it.</p>";
         var html = _templates.Render(heading, bodyHtml, "Reset password", resetUrl);
         var text = _templates.PlainText(heading,
-            "We received a request to reset your NamFix password. Open the link below to choose a new one.", resetUrl);
+            "We received a request to reset the password for your NamFix account. Open the link below to choose a new one. " +
+            $"For your security, this link expires in {hours} hour(s) and can only be used once.", resetUrl);
 
         return new Sample($"[TEST] {heading}", html, text, "Password reset");
     }

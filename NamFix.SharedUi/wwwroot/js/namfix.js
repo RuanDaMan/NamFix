@@ -14,9 +14,14 @@ window.namfix.onResume = function (dotNetRef) {
     window.addEventListener('focus', fire);
 };
 
+// Blazor drives the in-app back navigation (window.history.back() isn't reliably honoured by the
+// Hybrid WebView). MainLayout registers a .NET ref here and keeps _canGoBack in sync with its history.
+window.namfix.registerBack = function (dotNetRef) { window.namfix._backRef = dotNetRef; };
+window.namfix.setCanGoBack = function (can) { window.namfix._canGoBack = !!can; };
+
 // Handles the Android hardware back button (called from MainActivity). Priority: close an open
-// notification popup, then close the nav drawer, then navigate back in history. Returns true when it
-// handled the press so the host doesn't background/exit the app.
+// notification popup, then close the nav drawer, then navigate back to the previous screen via .NET.
+// Returns true when it handled the press so the host doesn't background/exit the app.
 window.namfix.handleBack = function () {
     const bellOverlay = document.querySelector('.nf-bell-overlay');
     if (bellOverlay) { bellOverlay.click(); return true; }
@@ -24,7 +29,11 @@ window.namfix.handleBack = function () {
     const navBackdrop = document.querySelector('.nf-nav-backdrop.open');
     if (navBackdrop) { navBackdrop.click(); return true; }
 
-    if (window.history.length > 1) { window.history.back(); return true; }
+    if (window.namfix._backRef && window.namfix._canGoBack) {
+        // Fire-and-forget: the .NET side re-renders the router. We already know it will handle it.
+        try { window.namfix._backRef.invokeMethodAsync('NavigateBack'); } catch (e) { /* ref gone */ }
+        return true;
+    }
     return false;
 };
 

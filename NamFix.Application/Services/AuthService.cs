@@ -129,14 +129,20 @@ public sealed class AuthService : IAuthService
 
         var resetUrl = $"{_mailApp.ClientBaseUrl.TrimEnd('/')}/reset-password?token={Uri.EscapeDataString(token)}";
         var heading = "Reset your NamFix password";
+        var hours = Math.Max(1, _mailApp.PasswordResetTokenHours);
+        var greeting = NotificationDispatcher.GreetingName(user.FullName);
         var bodyHtml =
-            $"<p>Hi {System.Net.WebUtility.HtmlEncode(user.FullName)},</p>" +
-            "<p>We received a request to reset your NamFix password. Click the button below to choose a new one. " +
-            $"This link expires in {Math.Max(1, _mailApp.PasswordResetTokenHours)} hour(s).</p>" +
-            "<p style=\"color:#6b7280;font-size:13px;\">If you didn't request this, you can safely ignore this email — your password won't change.</p>";
+            $"<p style=\"margin:0 0 14px 0;\">Hi {System.Net.WebUtility.HtmlEncode(greeting)},</p>" +
+            "<p style=\"margin:0 0 14px 0;\">We received a request to reset the password for your NamFix account. " +
+            "Click the button below to choose a new password and get back to finding trusted tradespeople.</p>" +
+            $"<p style=\"margin:0 0 14px 0;color:{EmailTemplateRenderer.MutedColor};font-size:14px;\">For your security, this link expires in {hours} hour(s) and can only be used once.</p>" +
+            $"<p style=\"margin:0;color:{EmailTemplateRenderer.MutedColor};font-size:13px;\">If you didn't request this, you can safely ignore this email — your password won't change, and no one else can see it.</p>";
+        var bodyText = $"Hi {greeting},\n\n" +
+            "We received a request to reset the password for your NamFix account. Open the link below to choose a new one.\n" +
+            $"For your security, this link expires in {hours} hour(s) and can only be used once. " +
+            "If you didn't request this, you can safely ignore this email.";
         var html = _templates.Render(heading, bodyHtml, "Reset password", resetUrl);
-        var text = _templates.PlainText(heading,
-            "We received a request to reset your NamFix password. Open the link below to choose a new one.", resetUrl);
+        var text = _templates.PlainText(heading, bodyText, resetUrl);
 
         // AccountSecurity mail is always sent (no unsubscribe). Enqueue so a slow SMTP never blocks the request.
         _jobs.Enqueue<IMailSenderService>(x => x.SendMailInBackground(

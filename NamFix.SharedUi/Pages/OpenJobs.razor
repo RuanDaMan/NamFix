@@ -43,15 +43,28 @@ else
                             <input placeholder="Note (optional)" @bind="_note" />
                             <div class="nf-booking-actions">
                                 <button class="nf-cta" @onclick="() => SubmitAsync(j.Id)" disabled="@(_amount <= 0)">Send quote</button>
-                                <button class="nf-link-btn" @onclick="() => SubmitInterestAsync(j.Id)">I'm interested</button>
                                 <button class="nf-link-btn" @onclick="() => _quoting = null">Cancel</button>
                             </div>
+                        </div>
+                    }
+                    else if (j.MyResponseStatus == JobResponseStatus.Quoted)
+                    {
+                        <span class="nf-success">✓ You quoted @j.Currency @(j.MyQuoteAmount?.ToString("0.00"))</span>
+                        <div class="nf-booking-actions">
+                            <button class="nf-link-btn" @onclick="() => StartQuote(j.Id, j.MyQuoteAmount)">Update quote</button>
+                        </div>
+                    }
+                    else if (j.MyResponseStatus == JobResponseStatus.Interested)
+                    {
+                        <span class="nf-success">✓ Interest registered</span>
+                        <div class="nf-booking-actions">
+                            <button class="nf-cta" @onclick="() => StartQuote(j.Id)">Send quote</button>
                         </div>
                     }
                     else
                     {
                         <div class="nf-booking-actions">
-                            <button class="nf-cta" @onclick="() => StartQuote(j.Id)">Respond</button>
+                            <button class="nf-cta" @onclick="() => StartQuote(j.Id)">Send quote</button>
                             <button class="nf-link-btn" @onclick="() => DismissAsync(j.Id)" disabled="@(_dismissing == j.Id)">
                                 @(_dismissing == j.Id ? "Removing…" : "Reject")
                             </button>
@@ -93,10 +106,10 @@ else
     private void OnChanged(Guid jobId) => _ = InvokeAsync(LoadAsync);
     private void OnNotified() => _ = InvokeAsync(LoadAsync);
 
-    private void StartQuote(Guid jobId)
+    private void StartQuote(Guid jobId, decimal? prefill = null)
     {
         _quoting = jobId;
-        _amount = 0;
+        _amount = prefill ?? 0;
         _note = null;
     }
 
@@ -104,12 +117,6 @@ else
     {
         if (_amount <= 0) return;
         var ok = await Api.SubmitQuoteAsync(jobId, new SubmitQuoteRequest { Amount = _amount, Note = _note });
-        if (ok is not null) { _quoting = null; await LoadAsync(); }
-    }
-
-    private async Task SubmitInterestAsync(Guid jobId)
-    {
-        var ok = await Api.SubmitQuoteAsync(jobId, new SubmitQuoteRequest { InterestOnly = true, Note = _note });
         if (ok is not null) { _quoting = null; await LoadAsync(); }
     }
 

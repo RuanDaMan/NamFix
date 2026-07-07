@@ -31,6 +31,9 @@ public static class DependencyInjection
 
         // Tracks seen open-jobs so the provider's Job board badge shows only unseen ones.
         services.AddScoped<JobBoardState>();
+
+        // In-app navigation history powering the mobile hardware back button (see MainLayout + namfix.js).
+        services.AddScoped<NavigationHistory>();
         // ConnectivityService (SignalR backend heartbeat) is registered by the host, which knows the
         // API base address — see AddNamFixSharedUi callers.
         // NamFixApiClient itself is registered by the host via AddHttpClient<NamFixApiClient>()

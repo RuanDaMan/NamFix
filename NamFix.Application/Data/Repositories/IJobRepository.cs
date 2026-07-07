@@ -27,6 +27,8 @@ public interface IJobRepository
     Task UpdateResponseAsync(JobRequestResponse response);
     Task<JobRequestResponse?> GetResponseByIdAsync(Guid responseId);
     Task<JobRequestResponse?> GetResponseForProviderAsync(Guid jobRequestId, Guid providerUserId);
+    /// <summary>The provider's own responses across a set of jobs, keyed for enriching a board/list view.</summary>
+    Task<List<JobRequestResponse>> ListProviderResponsesAsync(Guid providerUserId, IReadOnlyCollection<Guid> jobIds);
     Task<List<JobResponseDto>> ListResponseDtosAsync(Guid jobRequestId);
     /// <summary>Mark every response other than the accepted one as Rejected (client picked a quote).</summary>
     Task RejectOtherResponsesAsync(Guid jobRequestId, Guid acceptedResponseId);
@@ -227,6 +229,15 @@ public sealed class JobRequestRepository : IJobRepository
         return await conn.QuerySingleOrDefaultAsync<JobRequestResponse>(
             "SELECT * FROM dbo.JobRequestResponses WHERE JobRequestId = @jobRequestId AND ProviderUserId = @providerUserId",
             new { jobRequestId, providerUserId });
+    }
+
+    public async Task<List<JobRequestResponse>> ListProviderResponsesAsync(Guid providerUserId, IReadOnlyCollection<Guid> jobIds)
+    {
+        if (jobIds.Count == 0) return new();
+        using var conn = await _db.CreateOpenConnectionAsync();
+        return (await conn.QueryAsync<JobRequestResponse>(
+            "SELECT * FROM dbo.JobRequestResponses WHERE ProviderUserId = @providerUserId AND JobRequestId IN @jobIds",
+            new { providerUserId, jobIds })).AsList();
     }
 
     public async Task<List<JobResponseDto>> ListResponseDtosAsync(Guid jobRequestId)
