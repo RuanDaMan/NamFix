@@ -33,6 +33,7 @@ public interface IUserRepository
     Task SetActiveAsync(Guid id, bool isActive);
     Task SetRoleAsync(Guid id, UserRole role);
     Task UpdatePasswordHashAsync(Guid id, string passwordHash);
+    Task UpdateProfileAsync(Guid id, string fullName, string? phoneNumber);
     Task UpdateLastSeenAsync(Guid id, DateTime utc);
     Task IncrementNoShowAsync(Guid id);
     Task IncrementLateCancellationAsync(Guid id);
@@ -163,6 +164,14 @@ public sealed class UserRepository : IUserRepository
         using var conn = await _db.CreateOpenConnectionAsync();
         await conn.ExecuteAsync(
             "UPDATE dbo.Users SET PasswordHash = @passwordHash WHERE Id = @id", new { id, passwordHash });
+    }
+
+    public async Task UpdateProfileAsync(Guid id, string fullName, string? phoneNumber)
+    {
+        using var conn = await _db.CreateOpenConnectionAsync();
+        await conn.ExecuteAsync(
+            "UPDATE dbo.Users SET FullName = @fullName, PhoneNumber = @phoneNumber WHERE Id = @id",
+            new { id, fullName, phoneNumber });
     }
 
     public async Task UpdateLastSeenAsync(Guid id, DateTime utc)

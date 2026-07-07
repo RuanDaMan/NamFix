@@ -3,9 +3,19 @@
 @inject NavigationManager Nav
 @inject ThemeService Theme
 @inject NotificationService Notifications
+@inject AuthenticationStateProvider AuthProvider
 
 <nav class="nf-nav">
-    <a class="nf-brand" href="" @onclick="CloseMenu">🔧 NamFix</a>
+    <a class="nf-brand" href="" @onclick="CloseMenu">
+        <svg class="nf-brand-mark" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+            <circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" stroke-width="8" />
+            <g transform="rotate(15 50 50)" fill="var(--nf-accent)">
+                <rect x="45" y="16" width="10" height="68" rx="4" />
+                <rect x="16" y="45" width="68" height="10" rx="4" />
+            </g>
+        </svg>
+        <span>Nam<span class="nf-brand-fix">Fix</span></span>
+    </a>
 
     <div class="nf-nav-links @(_menuOpen ? "open" : "")">
         <ConnectionStatus />
@@ -19,8 +29,14 @@
             <a href="post-job">Get matched</a>
         </AuthorizeView>
         <AuthorizeView Roles="ServiceProvider">
-            <a href="provider/dashboard">My Listing</a>
-            <a href="open-jobs">Job board</a>
+            <a href="profile">My Profile</a>
+            <a href="open-jobs">
+                Job board
+                @if (_openJobCount > 0)
+                {
+                    <span class="nf-nav-badge">@(_openJobCount > 9 ? "9+" : _openJobCount.ToString())</span>
+                }
+            </a>
         </AuthorizeView>
         <AuthorizeView Roles="Admin">
             <a href="admin">Admin</a>
@@ -69,11 +85,57 @@
 
 @code {
     private bool _menuOpen;
+    private bool _isProvider;
+    private int _openJobCount;
 
     protected override void OnInitialized()
     {
         // Close the drawer whenever navigation happens (covers taps on any nav link).
         Nav.LocationChanged += OnLocationChanged;
+        // Re-evaluate the provider job-board badge whenever auth changes (login/logout in-session).
+        AuthProvider.AuthenticationStateChanged += OnAuthChanged;
+    }
+
+    protected override async Task OnInitializedAsync() =>
+        await ApplyAuthAsync(await AuthProvider.GetAuthenticationStateAsync());
+
+    private void OnAuthChanged(Task<AuthenticationState> state) => _ = InvokeAsync(async () => await ApplyAuthAsync(await state));
+
+    private async Task ApplyAuthAsync(AuthenticationState state)
+    {
+        var isProvider = state.User.IsInRole("ServiceProvider");
+        if (isProvider == _isProvider) return;
+        _isProvider = isProvider;
+
+        if (_isProvider)
+        {
+            // Live badge of open jobs the provider can respond to; refresh on any realtime event.
+            Notifications.NotificationsChanged += OnJobsMaybeChanged;
+            Notifications.BookingChanged += OnBookingChanged;
+            await RefreshOpenJobCountAsync();
+        }
+        else
+        {
+            Notifications.NotificationsChanged -= OnJobsMaybeChanged;
+            Notifications.BookingChanged -= OnBookingChanged;
+            _openJobCount = 0;
+            StateHasChanged();
+        }
+    }
+
+    private void OnJobsMaybeChanged() => _ = InvokeAsync(RefreshOpenJobCountAsync);
+    private void OnBookingChanged(Guid jobId) => _ = InvokeAsync(RefreshOpenJobCountAsync);
+
+    private async Task RefreshOpenJobCountAsync()
+    {
+        if (!_isProvider) return;
+        var jobs = await Api.GetOpenJobsAsync();
+        var count = jobs.Count;
+        if (count != _openJobCount)
+        {
+            _openJobCount = count;
+            StateHasChanged();
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -115,5 +177,11 @@
         Nav.NavigateTo("");
     }
 
-    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
+        AuthProvider.AuthenticationStateChanged -= OnAuthChanged;
+        Notifications.NotificationsChanged -= OnJobsMaybeChanged;
+        Notifications.BookingChanged -= OnBookingChanged;
+    }
 }

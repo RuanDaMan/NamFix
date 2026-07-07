@@ -21,6 +21,17 @@ public interface IAuthService
 
     /// <summary>Complete password recovery with a valid, unexpired, unused token.</summary>
     Task ResetPasswordAsync(ResetPasswordWithTokenRequest request);
+
+    /// <summary>The signed-in user's own profile.</summary>
+    Task<UserDto> GetMeAsync(Guid userId);
+
+    /// <summary>Update the signed-in user's name/phone; returns a fresh token pair so claims (e.g. the
+    /// display name) update immediately.</summary>
+    Task<AuthResponse> UpdateProfileAsync(Guid userId, UpdateProfileRequest request);
+
+    /// <summary>Change the signed-in user's password after verifying the current one. Returns a fresh
+    /// token pair so the current session stays signed in while all other sessions are revoked.</summary>
+    Task<AuthResponse> ChangePasswordAsync(Guid userId, ChangePasswordRequest request);
 }
 
 /// <summary>Thrown for auth failures so the API can translate to 400/401 without leaking detail.</summary>
@@ -148,6 +159,55 @@ public sealed class AuthService : IAuthService
         await _users.RevokeAllRefreshTokensForUserAsync(user.Id);
 
         _log.LogInformation("Password reset completed for user {UserId}.", user.Id);
+    }
+
+    public async Task<UserDto> GetMeAsync(Guid userId)
+    {
+        var user = await _users.GetByIdAsync(userId)
+            ?? throw new AuthException("User no longer exists.");
+        return new UserDto
+        {
+            Id = user.Id,
+            Email = user.Email,
+            FullName = user.FullName,
+            PhoneNumber = user.PhoneNumber,
+            Role = user.Role
+        };
+    }
+
+    public async Task<AuthResponse> UpdateProfileAsync(Guid userId, UpdateProfileRequest request)
+    {
+        var user = await _users.GetByIdAsync(userId)
+            ?? throw new AuthException("User no longer exists.");
+
+        var fullName = request.FullName?.Trim();
+        if (string.IsNullOrWhiteSpace(fullName))
+            throw new AuthException("Your name can't be empty.");
+
+        var phone = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
+        await _users.UpdateProfileAsync(user.Id, fullName, phone);
+
+        // Re-issue tokens so the JWT name claim (shown in the nav) reflects the new name right away.
+        user.FullName = fullName;
+        user.PhoneNumber = phone;
+        return await IssueTokensAsync(user);
+    }
+
+    public async Task<AuthResponse> ChangePasswordAsync(Guid userId, ChangePasswordRequest request)
+    {
+        var user = await _users.GetByIdAsync(userId)
+            ?? throw new AuthException("User no longer exists.");
+
+        if (!_hasher.Verify(request.CurrentPassword, user.PasswordHash))
+            throw new AuthException("Your current password is incorrect.");
+        if (string.IsNullOrWhiteSpace(request.NewPassword) || request.NewPassword.Length < 6)
+            throw new AuthException("Your new password must be at least 6 characters.");
+
+        await _users.UpdatePasswordHashAsync(user.Id, _hasher.Hash(request.NewPassword));
+        // Cut off every existing session, then hand this one a fresh pair so the user stays signed in.
+        await _users.RevokeAllRefreshTokensForUserAsync(user.Id);
+        _log.LogInformation("Password changed for user {UserId}.", user.Id);
+        return await IssueTokensAsync(user);
     }
 
     private static string UrlSafeToken() =>

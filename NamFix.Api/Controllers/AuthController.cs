@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using NamFix.Application.Services;
 using NamFix.Shared.Dtos;
@@ -42,6 +43,29 @@ public sealed class AuthController : ApiControllerBase
     public async Task<ActionResult> ResetPassword(ResetPasswordWithTokenRequest request)
     {
         try { await _auth.ResetPasswordAsync(request); return Ok(); }
+        catch (AuthException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
+    }
+
+    /// <summary>The signed-in user's own profile.</summary>
+    [Authorize]
+    [HttpGet("me")]
+    public async Task<ActionResult<UserDto>> Me() => Ok(await _auth.GetMeAsync(CurrentUserId));
+
+    /// <summary>Update the signed-in user's name/phone; returns a fresh token pair with updated claims.</summary>
+    [Authorize]
+    [HttpPut("profile")]
+    public async Task<ActionResult<AuthResponse>> UpdateProfile(UpdateProfileRequest request)
+    {
+        try { return Ok(await _auth.UpdateProfileAsync(CurrentUserId, request)); }
+        catch (AuthException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
+    }
+
+    /// <summary>Change the signed-in user's password; returns a fresh token pair.</summary>
+    [Authorize]
+    [HttpPost("change-password")]
+    public async Task<ActionResult<AuthResponse>> ChangePassword(ChangePasswordRequest request)
+    {
+        try { return Ok(await _auth.ChangePasswordAsync(CurrentUserId, request)); }
         catch (AuthException ex) { return BadRequest(new ErrorResponse { Error = ex.Message }); }
     }
 }

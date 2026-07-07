@@ -1,18 +1,12 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <svg width="456" height="456" viewBox="0 0 456 456" version="1.1" xmlns="http://www.w3.org/2000/svg">
-    <!-- NamFix wrench mark. Sits within the central adaptive-icon safe zone (~150px radius
-         around 228,228). Rotated so it reads as a dynamic "fix" tool. -->
-    <g transform="translate(228 228) scale(0.88) rotate(-40) translate(-228 -228)">
-        <!-- Open-end head (top) -->
-        <rect x="190" y="93" width="76" height="66" rx="16" fill="#ffffff" />
-        <!-- V-notch of the open jaw (punched back to the blue background) -->
-        <path d="M202 91 L228 130 L254 91 Z" fill="#1f6feb" />
-        <!-- Handle -->
-        <rect x="209" y="150" width="38" height="150" rx="19" fill="#ffffff" />
-        <!-- Box-end ring (bottom) -->
-        <circle cx="228" cy="320" r="48" fill="#ffffff" />
-        <circle cx="228" cy="320" r="23" fill="#1f6feb" />
-        <!-- Amber hex nut nestled in the open jaw (brand accent) -->
-        <path d="M228 92 L241 99 L241 115 L228 122 L215 115 L215 99 Z" fill="#f59e0b" />
+    <!-- NamFix screw-head mark (concept 15). Gold ring + white head with a Phillips
+         cross-slot punched back to the charcoal background. Kept within the central
+         adaptive-icon safe zone (~139px radius around 228,228). -->
+    <circle cx="228" cy="228" r="112" fill="none" stroke="#F59E0B" stroke-width="16" />
+    <circle cx="228" cy="228" r="98" fill="#ffffff" />
+    <g transform="rotate(15 228 228)">
+        <rect x="210" y="134" width="36" height="188" rx="14" fill="#27272A" />
+        <rect x="134" y="210" width="188" height="36" rx="14" fill="#27272A" />
     </g>
 </svg>

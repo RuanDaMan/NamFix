@@ -31,6 +31,11 @@ public static class MauiProgram
 		// Tag this host as the mobile platform so the shared UI applies the touch shell + safe areas.
 		builder.Services.AddNamFixSharedUi(HostPlatform.Mobile);
 
+		// Override the web's WebView-based geolocation with the native MAUI one so "use my current
+		// location" prompts for permission IN-APP (system dialog) instead of failing and sending the
+		// user out to OS settings. Registered after AddNamFixSharedUi so this wins.
+		builder.Services.AddScoped<IGeolocationService, NamFix.Mobile.Services.MauiGeolocationService>();
+
 		// API base URL. On the Android EMULATOR, 10.0.2.2 is an alias for the host machine's
 		// loopback, so this reaches an API running on your PC. For a PHYSICAL phone, change this to
 		// your PC's LAN IP (e.g. https://192.168.x.x:7111/) — the phone and PC must be on the same

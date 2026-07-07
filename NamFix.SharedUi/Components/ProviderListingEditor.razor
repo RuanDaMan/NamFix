@@ -1,0 +1,231 @@
+@inject NamFixApiClient Api
+@inject IGeolocationService Geo
+
+@* Reusable editor for a provider's own business listing. Hosted by both the /provider/dashboard page
+   and the "My business" tab of /profile so there's a single source of truth for the form. *@
+
+@if (_loading)
+{
+    <p class="nf-muted">Loading…</p>
+}
+else
+{
+    @if (_status is { } s)
+    {
+        <p class="nf-status status-@s.ToString().ToLower()">
+            Listing status: <strong>@StatusLabel(s)</strong>
+            @if (s == ProviderStatus.PendingApproval)
+            {
+                <text> — your listing becomes searchable once an admin approves it.</text>
+            }
+        </p>
+    }
+
+    <EditForm Model="_model" OnValidSubmit="SaveAsync" class="nf-form">
+        <DataAnnotationsValidator />
+
+        <label>Business / trading name</label>
+        <InputText @bind-Value="_model.BusinessName" />
+
+        <label>About your services</label>
+        <InputTextArea @bind-Value="_model.Description" rows="3" />
+
+        <label>Primary category</label>
+        <InputSelect @bind-Value="_model.PrimaryCategoryId">
+            <option value="0" disabled>Choose…</option>
+            @foreach (var c in _categories)
+            {
+                <option value="@c.Id">@c.Name</option>
+            }
+        </InputSelect>
+
+        <label>Primary town</label>
+        <InputSelect @bind-Value="_model.PrimaryTownId">
+            <option value="">Choose…</option>
+            @foreach (var t in _towns)
+            {
+                <option value="@t.Id">@t.Name</option>
+            }
+        </InputSelect>
+
+        <label>Service towns (where you work)</label>
+        <div class="nf-chips">
+            @foreach (var t in _towns)
+            {
+                <label class="nf-chip @(_model.TownIds.Contains(t.Id) ? "on" : "")">
+                    <input type="checkbox" checked="@_model.TownIds.Contains(t.Id)"
+                           @onchange="e => ToggleTown(t.Id, (bool)e.Value!)" />
+                    @t.Name
+                </label>
+            }
+        </div>
+
+        <label>Service tags (comma separated)</label>
+        <InputText @bind-Value="_tagsCsv" placeholder="geyser repair, solar, after hours" />
+        <small class="nf-muted">New tags are reviewed by an admin before they appear in search.</small>
+
+        <label>Availability</label>
+        <InputSelect @bind-Value="_model.Availability">
+            @foreach (var a in Enum.GetValues<AvailabilityStatus>())
+            {
+                <option value="@a">@a</option>
+            }
+        </InputSelect>
+
+        <label class="nf-check">
+            <InputCheckbox @bind-Value="_model.IsEmergencyCallout" /> I offer 24/7 emergency callouts
+        </label>
+
+        <label>Years of experience</label>
+        <InputNumber @bind-Value="_model.YearsExperience" placeholder="e.g. 8" />
+
+        <label>Pin your location</label>
+        <div class="nf-booking-actions">
+            <button type="button" class="nf-link-btn" @onclick="UseMyLocationAsync" disabled="@_locating">
+                @if (_locating)
+                {
+                    <span class="nf-inline-spinner"></span> <span>Locating…</span>
+                }
+                else
+                {
+                    <span>📍 Use my current location</span>
+                }
+            </button>
+            <span class="nf-muted">or tap the map</span>
+        </div>
+        <MapView Center="PinCenter" Zoom="@(_model.Latitude is null ? 6 : 14)" PinMode="true"
+                 OnPinned="OnPinned" Height="300px" Markers="PinMarkers" />
+        @if (_model.Latitude is not null)
+        {
+            <p class="nf-muted nf-pin-note">Pinned at @_model.Latitude?.ToString("0.0000"), @_model.Longitude?.ToString("0.0000")</p>
+        }
+
+        <div class="nf-form-actions">
+            <button class="nf-cta" type="submit" disabled="@_busy">@(_busy ? "Saving…" : "Save listing")</button>
+            @if (_saved)
+            {
+                <span class="nf-success">Saved ✓</span>
+            }
+        </div>
+    </EditForm>
+
+    <section class="nf-booking-section">
+        <h2>More</h2>
+        <div class="nf-booking-actions">
+            <a class="nf-link-btn" href="provider/rate-cards">💲 Manage rate card</a>
+            <a class="nf-link-btn" href="provider/availability">📅 Manage availability</a>
+            <a class="nf-link-btn" href="open-jobs">📢 Job board</a>
+        </div>
+    </section>
+
+    @if (_earnings is not null)
+    {
+        <section class="nf-earnings">
+            <h2>Earnings</h2>
+            <div class="nf-stat-grid">
+                <div class="nf-stat"><span>Gross billed</span><strong>N$@_earnings.TotalGross</strong></div>
+                <div class="nf-stat"><span>Commission</span><strong>N$@_earnings.TotalCommission</strong></div>
+                <div class="nf-stat"><span>Net paid out</span><strong>N$@_earnings.TotalNetPayout</strong></div>
+                <div class="nf-stat"><span>Pending payout</span><strong>N$@_earnings.PendingPayout</strong></div>
+            </div>
+        </section>
+    }
+}
+
+@code {
+    private SaveProviderRequest _model = new() { Availability = AvailabilityStatus.Available };
+    private List<CategoryDto> _categories = new();
+    private List<TownDto> _towns = new();
+    private ProviderEarningsDto? _earnings;
+    private ProviderStatus? _status;
+    private string _tagsCsv = "";
+    private bool _loading = true, _busy, _saved, _locating;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _categories = await Api.GetCategoriesAsync();
+        _towns = await Api.GetTownsAsync();
+
+        var existing = await Api.GetMyProviderAsync();
+        if (existing is not null)
+        {
+            _status = existing.Status;
+            _model = new SaveProviderRequest
+            {
+                BusinessName = existing.BusinessName,
+                Description = existing.Description,
+                PrimaryCategoryId = existing.PrimaryCategoryId,
+                PrimaryTownId = existing.PrimaryTownId,
+                Availability = existing.Availability,
+                IsEmergencyCallout = existing.IsEmergencyCallout,
+                Latitude = existing.Latitude,
+                Longitude = existing.Longitude,
+                YearsExperience = existing.YearsExperience,
+                TownIds = existing.TownIds.ToList(),
+                Tags = existing.Tags.ToList()
+            };
+            _tagsCsv = string.Join(", ", existing.Tags);
+        }
+
+        _earnings = await Api.GetEarningsAsync();
+        _loading = false;
+    }
+
+    private void ToggleTown(int townId, bool selected)
+    {
+        if (selected) { if (!_model.TownIds.Contains(townId)) _model.TownIds.Add(townId); }
+        else _model.TownIds.Remove(townId);
+    }
+
+    private void OnPinned(GeoPoint point)
+    {
+        _model.Latitude = point.Latitude;
+        _model.Longitude = point.Longitude;
+    }
+
+    private async Task UseMyLocationAsync()
+    {
+        _locating = true;
+        try
+        {
+            if (await Geo.GetCurrentLocationAsync() is { } p)
+            {
+                _model.Latitude = p.Latitude;
+                _model.Longitude = p.Longitude;
+            }
+        }
+        finally
+        {
+            _locating = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        _saved = false;
+        _model.Tags = _tagsCsv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        var result = await Api.SaveMyProviderAsync(_model);
+        _busy = false;
+        if (result is not null)
+        {
+            _saved = true;
+            _status = result.Status;
+        }
+    }
+
+    private GeoPoint PinCenter => _model.Latitude is { } lat && _model.Longitude is { } lng
+        ? new GeoPoint(lat, lng) : new GeoPoint(-22.56, 17.08);
+
+    private IEnumerable<MapMarker> PinMarkers => _model.Latitude is { } lat && _model.Longitude is { } lng
+        ? new[] { new MapMarker(new GeoPoint(lat, lng), "Your location") }
+        : Array.Empty<MapMarker>();
+
+    private static string StatusLabel(ProviderStatus s) => s switch
+    {
+        ProviderStatus.PendingApproval => "Pending approval",
+        ProviderStatus.Active => "Active",
+        ProviderStatus.Suspended => "Suspended",
+        _ => "Rejected"
+    };
+}

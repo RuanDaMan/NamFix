@@ -27,6 +27,16 @@ else
                 <div class="nf-booking-row-main">
                     <strong>@Counterpart(b)</strong>
                     <span class="nf-muted">@b.ServiceDescription</span>
+                    @if (b.ReviewRating is { } rating)
+                    {
+                        <span class="nf-booking-review-line">
+                            <RatingStars Value="rating" Count="0" />
+                            @if (!string.IsNullOrWhiteSpace(b.ReviewComment))
+                            {
+                                <span class="nf-muted">“@b.ReviewComment”</span>
+                            }
+                        </span>
+                    }
                 </div>
                 <div class="nf-booking-row-side">
                     <span class="nf-badge @StatusClass(b.Status)">@StatusLabel(b.Status)</span>

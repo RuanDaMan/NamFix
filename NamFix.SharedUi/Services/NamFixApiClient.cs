@@ -35,14 +35,30 @@ public sealed class NamFixApiClient
     // ---- Auth ----
     // Auth failures are surfaced inline on the login/register forms (returned string), so they don't
     // also raise a toast; transport failures (server offline) fall back to the shared offline message.
-    public async Task<string?> RegisterAsync(RegisterRequest request) => await AuthenticateAsync("api/auth/register", request);
-    public async Task<string?> LoginAsync(LoginRequest request) => await AuthenticateAsync("api/auth/login", request);
+    public async Task<string?> RegisterAsync(RegisterRequest request) =>
+        await AuthenticateAsync(() => _http.PostAsJsonAsync("api/auth/register", request), "api/auth/register");
+    public async Task<string?> LoginAsync(LoginRequest request) =>
+        await AuthenticateAsync(() => _http.PostAsJsonAsync("api/auth/login", request), "api/auth/login");
 
-    private async Task<string?> AuthenticateAsync(string url, object request)
+    // ---- Self-service profile (signed-in user) ----
+    public async Task<UserDto?> GetMeAsync() =>
+        await SendAsync<UserDto>(() => _http.GetAsync("api/auth/me"));
+
+    /// <summary>Update name/phone. Stores the returned fresh tokens so the nav name updates. Null == success.</summary>
+    public async Task<string?> UpdateProfileAsync(UpdateProfileRequest request) =>
+        await AuthenticateAsync(() => _http.PutAsJsonAsync("api/auth/profile", request), "api/auth/profile");
+
+    /// <summary>Change password. Stores the returned fresh tokens so the session stays valid. Null == success.</summary>
+    public async Task<string?> ChangePasswordAsync(ChangePasswordRequest request) =>
+        await AuthenticateAsync(() => _http.PostAsJsonAsync("api/auth/change-password", request), "api/auth/change-password");
+
+    // Runs an auth-shaped request (login/register/profile/password): on success it stores the returned
+    // token pair and refreshes auth state; failures return an inline message string (no toast).
+    private async Task<string?> AuthenticateAsync(Func<Task<HttpResponseMessage>> send, string url)
     {
         try
         {
-            var response = await _http.PostAsJsonAsync(url, request);
+            var response = await send();
             if (!response.IsSuccessStatusCode)
                 return await ReadErrorMessageAsync(response);
 

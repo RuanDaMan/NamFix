@@ -67,6 +67,9 @@ else
     protected override async Task OnInitializedAsync()
     {
         Notifications.BookingChanged += OnChanged;
+        // A newly broadcast job reaches an invited provider as a notification (not a JobChanged for a
+        // job they're already on), so refresh the board on any notification too.
+        Notifications.NotificationsChanged += OnNotified;
         await LoadAsync();
     }
 
@@ -79,6 +82,7 @@ else
     }
 
     private void OnChanged(Guid jobId) => _ = InvokeAsync(LoadAsync);
+    private void OnNotified() => _ = InvokeAsync(LoadAsync);
 
     private void StartQuote(Guid jobId)
     {
@@ -100,5 +104,9 @@ else
         if (ok is not null) { _quoting = null; await LoadAsync(); }
     }
 
-    public void Dispose() => Notifications.BookingChanged -= OnChanged;
+    public void Dispose()
+    {
+        Notifications.BookingChanged -= OnChanged;
+        Notifications.NotificationsChanged -= OnNotified;
+    }
 }

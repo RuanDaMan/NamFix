@@ -1,0 +1,149 @@
+@page "/profile"
+@attribute [Authorize]
+@inject NamFixApiClient Api
+
+<PageTitle>My profile — NamFix</PageTitle>
+
+<h1>My profile</h1>
+
+@if (_loading)
+{
+    <p class="nf-muted">Loading…</p>
+}
+else
+{
+    <div class="nf-auth-tabs nf-profile-tabs">
+        <button class="nf-auth-tab @(_tab == Tab.Details ? "on" : "")" @onclick="() => _tab = Tab.Details">My details</button>
+        @if (_isProvider)
+        {
+            <button class="nf-auth-tab @(_tab == Tab.Business ? "on" : "")" @onclick="() => _tab = Tab.Business">My business</button>
+        }
+    </div>
+
+    @if (_tab == Tab.Details)
+    {
+        <div class="nf-form">
+            <h2>Personal details</h2>
+            <label>Email</label>
+            <input value="@_email" disabled />
+            <small class="nf-muted">Your email is used to sign in and can't be changed here.</small>
+
+            <label>Full name</label>
+            <input @bind="_profile.FullName" />
+
+            <label>Phone number</label>
+            <input @bind="_profile.PhoneNumber" placeholder="e.g. +264 81 123 4567" />
+
+            <div class="nf-form-actions">
+                <button class="nf-cta" @onclick="SaveProfileAsync" disabled="@(_savingProfile || string.IsNullOrWhiteSpace(_profile.FullName))">
+                    @(_savingProfile ? "Saving…" : "Save details")
+                </button>
+                @if (_profileSaved)
+                {
+                    <span class="nf-success">Saved ✓</span>
+                }
+            </div>
+            @if (!string.IsNullOrEmpty(_profileError))
+            {
+                <p class="nf-error">@_profileError</p>
+            }
+
+            <hr class="nf-divider" />
+
+            <h2>Change password</h2>
+            <label>Current password</label>
+            <input type="password" @bind="_password.CurrentPassword" autocomplete="current-password" />
+
+            <label>New password</label>
+            <input type="password" @bind="_password.NewPassword" autocomplete="new-password" />
+
+            <label>Confirm new password</label>
+            <input type="password" @bind="_confirmPassword" autocomplete="new-password" />
+
+            <div class="nf-form-actions">
+                <button class="nf-cta" @onclick="ChangePasswordAsync" disabled="@_changingPassword">
+                    @(_changingPassword ? "Updating…" : "Change password")
+                </button>
+                @if (_passwordChanged)
+                {
+                    <span class="nf-success">Password changed ✓</span>
+                }
+            </div>
+            @if (!string.IsNullOrEmpty(_passwordError))
+            {
+                <p class="nf-error">@_passwordError</p>
+            }
+        </div>
+    }
+    else if (_tab == Tab.Business)
+    {
+        <ProviderListingEditor />
+    }
+}
+
+@code {
+    private enum Tab { Details, Business }
+
+    private Tab _tab = Tab.Details;
+    private bool _loading = true;
+    private bool _isProvider;
+    private string _email = "";
+
+    private UpdateProfileRequest _profile = new();
+    private bool _savingProfile, _profileSaved;
+    private string? _profileError;
+
+    private ChangePasswordRequest _password = new();
+    private string _confirmPassword = "";
+    private bool _changingPassword, _passwordChanged;
+    private string? _passwordError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var me = await Api.GetMeAsync();
+        if (me is not null)
+        {
+            _email = me.Email;
+            _isProvider = me.Role == UserRole.ServiceProvider;
+            _profile = new UpdateProfileRequest { FullName = me.FullName, PhoneNumber = me.PhoneNumber };
+        }
+        _loading = false;
+    }
+
+    private async Task SaveProfileAsync()
+    {
+        _savingProfile = true;
+        _profileSaved = false;
+        _profileError = null;
+        _profileError = await Api.UpdateProfileAsync(_profile);
+        _profileSaved = _profileError is null;
+        _savingProfile = false;
+    }
+
+    private async Task ChangePasswordAsync()
+    {
+        _passwordChanged = false;
+        _passwordError = null;
+
+        if (_password.NewPassword.Length < 6)
+        {
+            _passwordError = "Your new password must be at least 6 characters.";
+            return;
+        }
+        if (_password.NewPassword != _confirmPassword)
+        {
+            _passwordError = "The new passwords don't match.";
+            return;
+        }
+
+        _changingPassword = true;
+        _passwordError = await Api.ChangePasswordAsync(_password);
+        _changingPassword = false;
+        if (_passwordError is null)
+        {
+            _passwordChanged = true;
+            _password = new ChangePasswordRequest();
+            _confirmPassword = "";
+        }
+    }
+}
