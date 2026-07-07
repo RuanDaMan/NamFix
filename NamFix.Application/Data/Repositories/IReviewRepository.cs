@@ -23,8 +23,8 @@ public sealed class ReviewRepository : IReviewRepository
         using var conn = await _db.CreateOpenConnectionAsync();
         await conn.ExecuteAsync(
             """
-            INSERT INTO dbo.Reviews (Id, ProviderId, ClientUserId, Rating, Comment, IsVerified, CreatedAtUtc)
-            VALUES (@Id, @ProviderId, @ClientUserId, @Rating, @Comment, @IsVerified, @CreatedAtUtc)
+            INSERT INTO dbo.Reviews (Id, ProviderId, ClientUserId, JobRequestId, Rating, Comment, IsVerified, CreatedAtUtc)
+            VALUES (@Id, @ProviderId, @ClientUserId, @JobRequestId, @Rating, @Comment, @IsVerified, @CreatedAtUtc)
             """, review);
     }
 

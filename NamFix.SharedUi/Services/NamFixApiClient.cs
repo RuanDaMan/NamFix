@@ -472,11 +472,18 @@ public sealed class NamFixApiClient
     {
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            // The session has ended (expired/invalid token). Clear the stale token and flip the UI to
-            // logged-out rather than surfacing a raw auth error, then let the user know gently.
+            // A 401 while we still hold a token means the session genuinely expired (or was revoked):
+            // clear it, flip the UI to logged-out, and tell the user gently. A 401 with NO token in hand
+            // is a request that raced an intentional logout (or an anonymous call) — the user already
+            // meant to be signed out, so switch state quietly instead of the misleading "session expired"
+            // toast. Either way the detail is logged.
+            var hadToken = !string.IsNullOrWhiteSpace(await _tokens.GetAccessTokenAsync());
             await _tokens.ClearAsync();
             _auth.NotifyChanged();
-            _errors.Report("Your session has expired. Please log in again.", $"{operation} -> 401 Unauthorized");
+            if (hadToken)
+                _errors.Report("Your session has expired. Please log in again.", $"{operation} -> 401 Unauthorized");
+            else
+                _errors.LogHandled($"{operation} -> 401 Unauthorized (no active session; toast suppressed)");
             return;
         }
 

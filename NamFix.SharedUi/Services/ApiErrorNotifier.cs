@@ -23,4 +23,12 @@ public sealed class ApiErrorNotifier
         _logger.LogError("API error shown to user: {UserMessage} | detail: {Detail}", userMessage, fullDetail);
         ErrorReported?.Invoke(userMessage);
     }
+
+    /// <summary>
+    /// Logs an expected/handled API condition without surfacing a toast. Use for outcomes that are not
+    /// user-facing failures — e.g. a 401 that races an intentional logout, where the user already meant
+    /// to sign out and a "session expired" message would be misleading. The detail is still logged.
+    /// </summary>
+    public void LogHandled(string fullDetail) =>
+        _logger.LogInformation("API call handled without user message | detail: {Detail}", fullDetail);
 }
