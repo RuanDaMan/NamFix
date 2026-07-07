@@ -3,6 +3,7 @@
 @implements IDisposable
 @inject NamFixApiClient Api
 @inject NotificationService Notifications
+@inject JobBoardState JobBoard
 
 <PageTitle>Job board — NamFix</PageTitle>
 
@@ -49,7 +50,12 @@ else
                     }
                     else
                     {
-                        <button class="nf-cta" @onclick="() => StartQuote(j.Id)">Respond</button>
+                        <div class="nf-booking-actions">
+                            <button class="nf-cta" @onclick="() => StartQuote(j.Id)">Respond</button>
+                            <button class="nf-link-btn" @onclick="() => DismissAsync(j.Id)" disabled="@(_dismissing == j.Id)">
+                                @(_dismissing == j.Id ? "Removing…" : "Reject")
+                            </button>
+                        </div>
                     }
                 </div>
             </div>
@@ -61,6 +67,7 @@ else
     private List<JobRequestDto> _jobs = new();
     private bool _loading = true;
     private Guid? _quoting;
+    private Guid? _dismissing;
     private decimal _amount;
     private string? _note;
 
@@ -78,6 +85,8 @@ else
         _loading = true;
         _jobs = await Api.GetOpenJobsAsync();
         _loading = false;
+        // Viewing the board marks these jobs seen, which clears the nav badge.
+        JobBoard.MarkSeen(_jobs.Select(j => j.Id));
         StateHasChanged();
     }
 
@@ -102,6 +111,15 @@ else
     {
         var ok = await Api.SubmitQuoteAsync(jobId, new SubmitQuoteRequest { InterestOnly = true, Note = _note });
         if (ok is not null) { _quoting = null; await LoadAsync(); }
+    }
+
+    private async Task DismissAsync(Guid jobId)
+    {
+        _dismissing = jobId;
+        if (await Api.DismissJobAsync(jobId))
+            _jobs = _jobs.Where(j => j.Id != jobId).ToList();
+        _dismissing = null;
+        StateHasChanged();
     }
 
     public void Dispose()

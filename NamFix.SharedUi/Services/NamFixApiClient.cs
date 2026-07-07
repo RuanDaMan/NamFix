@@ -243,6 +243,10 @@ public sealed class NamFixApiClient
     public async Task<bool> WithdrawQuoteAsync(Guid id, Guid responseId) =>
         await SendOkAsync(() => _http.PostAsync($"api/jobs/{id}/quotes/{responseId}/withdraw", null));
 
+    /// <summary>Provider dismisses an open job from their board (no client notification).</summary>
+    public async Task<bool> DismissJobAsync(Guid id) =>
+        await SendOkAsync(() => _http.PostAsync($"api/jobs/{id}/dismiss", null));
+
     public async Task<JobRequestDto?> AcceptQuoteAsync(Guid id, Guid responseId) =>
         await SendAsync<JobRequestDto>(() => _http.PostAsync($"api/jobs/{id}/accept-quote/{responseId}", null));
 
@@ -295,6 +299,11 @@ public sealed class NamFixApiClient
     // ---- Notifications ----
     public async Task<List<NotificationDto>> GetNotificationsAsync() =>
         await SendAsync<List<NotificationDto>>(() => _http.GetAsync("api/notifications")) ?? new();
+
+    /// <summary>Like <see cref="GetNotificationsAsync"/> but returns null on failure (vs. an empty
+    /// list), so callers can avoid wiping a good list when a refresh transiently fails.</summary>
+    public async Task<List<NotificationDto>?> TryGetNotificationsAsync() =>
+        await SendAsync<List<NotificationDto>>(() => _http.GetAsync("api/notifications"));
 
     public async Task<bool> MarkNotificationReadAsync(Guid id) =>
         await SendOkAsync(() => _http.PostAsync($"api/notifications/{id}/read", null));

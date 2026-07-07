@@ -20,6 +20,9 @@ public interface IJobService
     // Quotes / matching
     Task<JobResponseDto> SubmitQuoteAsync(Guid providerUserId, Guid jobId, SubmitQuoteRequest request);
     Task WithdrawQuoteAsync(Guid providerUserId, Guid jobId, Guid responseId);
+
+    /// <summary>Provider privately removes an open job from their board. No client notification.</summary>
+    Task DismissJobAsync(Guid providerUserId, Guid jobId);
     Task<List<JobResponseDto>> ListResponsesAsync(Guid userId, Guid jobId);
     Task<JobRequestDto> AcceptQuoteAsync(Guid clientUserId, Guid jobId, Guid responseId);
 
@@ -266,6 +269,20 @@ public sealed class JobRequestService : IJobService
         if (response.Status is JobResponseStatus.Accepted)
             throw new InvalidOperationException("An accepted quote can't be withdrawn.");
         response.Status = JobResponseStatus.Withdrawn;
+        await _jobs.UpdateResponseAsync(response);
+    }
+
+    public async Task DismissJobAsync(Guid providerUserId, Guid jobId)
+    {
+        var response = await _jobs.GetResponseForProviderAsync(jobId, providerUserId)
+            ?? throw new InvalidOperationException("You weren't invited to this job.");
+        if (response.Status is JobResponseStatus.Accepted)
+            throw new InvalidOperationException("You can't dismiss a job you've already been booked for.");
+
+        // Declined drops the invitation out of the provider's board (which lists Invited/Viewed/
+        // Interested/Quoted only). Deliberately no client notification — this is a private dismissal.
+        response.Status = JobResponseStatus.Declined;
+        response.RespondedAtUtc = DateTime.UtcNow;
         await _jobs.UpdateResponseAsync(response);
     }
 

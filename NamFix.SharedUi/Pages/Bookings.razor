@@ -64,7 +64,11 @@ else
     private async Task LoadAsync()
     {
         _loading = true;
-        _bookings = await Api.GetMyBookingsAsync();
+        // Get-matched jobs still gathering quotes live on the "Get matched" page, not here — a job only
+        // becomes a booking once a provider is chosen. Filter those out (they never belong to a provider).
+        _bookings = (await Api.GetMyBookingsAsync())
+            .Where(b => b.Status is not (JobStatus.Requested or JobStatus.Quoted))
+            .ToList();
         _loading = false;
         StateHasChanged();
     }

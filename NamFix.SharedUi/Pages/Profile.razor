@@ -12,13 +12,14 @@
 }
 else
 {
-    <div class="nf-auth-tabs nf-profile-tabs">
-        <button class="nf-auth-tab @(_tab == Tab.Details ? "on" : "")" @onclick="() => _tab = Tab.Details">My details</button>
-        @if (_isProvider)
-        {
+    @* Only tradespeople get tabs (personal + business); a normal user sees a single untabbed form. *@
+    @if (_isProvider)
+    {
+        <div class="nf-auth-tabs nf-profile-tabs">
+            <button class="nf-auth-tab @(_tab == Tab.Details ? "on" : "")" @onclick="() => _tab = Tab.Details">My details</button>
             <button class="nf-auth-tab @(_tab == Tab.Business ? "on" : "")" @onclick="() => _tab = Tab.Business">My business</button>
-        }
-    </div>
+        </div>
+    }
 
     @if (_tab == Tab.Details)
     {

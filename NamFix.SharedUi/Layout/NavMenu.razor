@@ -4,6 +4,7 @@
 @inject ThemeService Theme
 @inject NotificationService Notifications
 @inject AuthenticationStateProvider AuthProvider
+@inject JobBoardState JobBoard
 
 <nav class="nf-nav">
     <a class="nf-brand" href="" @onclick="CloseMenu">
@@ -29,7 +30,6 @@
             <a href="post-job">Get matched</a>
         </AuthorizeView>
         <AuthorizeView Roles="ServiceProvider">
-            <a href="profile">My Profile</a>
             <a href="open-jobs">
                 Job board
                 @if (_openJobCount > 0)
@@ -47,6 +47,7 @@
         <AuthorizeView>
             <Authorized>
                 <a href="bookings">Bookings</a>
+                <a href="profile">My Profile</a>
                 <a href="support">Support</a>
                 <a href="settings/email">Email settings</a>
                 <NotificationsBell />
@@ -109,15 +110,18 @@
 
         if (_isProvider)
         {
-            // Live badge of open jobs the provider can respond to; refresh on any realtime event.
+            // Live badge of NEW (unseen) open jobs; refresh on any realtime event or when the board
+            // is viewed (which marks jobs seen via JobBoardState).
             Notifications.NotificationsChanged += OnJobsMaybeChanged;
             Notifications.BookingChanged += OnBookingChanged;
+            JobBoard.Changed += OnJobsMaybeChanged;
             await RefreshOpenJobCountAsync();
         }
         else
         {
             Notifications.NotificationsChanged -= OnJobsMaybeChanged;
             Notifications.BookingChanged -= OnBookingChanged;
+            JobBoard.Changed -= OnJobsMaybeChanged;
             _openJobCount = 0;
             StateHasChanged();
         }
@@ -130,7 +134,7 @@
     {
         if (!_isProvider) return;
         var jobs = await Api.GetOpenJobsAsync();
-        var count = jobs.Count;
+        var count = jobs.Count(j => !JobBoard.IsSeen(j.Id));
         if (count != _openJobCount)
         {
             _openJobCount = count;
@@ -183,5 +187,6 @@
         AuthProvider.AuthenticationStateChanged -= OnAuthChanged;
         Notifications.NotificationsChanged -= OnJobsMaybeChanged;
         Notifications.BookingChanged -= OnBookingChanged;
+        JobBoard.Changed -= OnJobsMaybeChanged;
     }
 }

@@ -25,6 +25,7 @@ public sealed class NotificationService : IAsyncDisposable
 
     private HubConnection? _connection;
     private bool _starting;
+    private bool _connecting;
 
     /// <param name="configureConnection">
     /// Optional host-specific tweak to the SignalR HTTP connection (e.g. the MAUI app trusting the
@@ -102,23 +103,44 @@ public sealed class NotificationService : IAsyncDisposable
             _connection.On<Guid>("TicketChanged", id => TicketChanged?.Invoke(id));
             _connection.On<Guid, SupportMessageDto>("SupportMessagePosted", (id, m) => SupportMessagePosted?.Invoke(id, m));
 
-            try
-            {
-                await _connection.StartAsync();
-                _logger.LogInformation("Notifications hub connected.");
-            }
-            catch (Exception ex)
-            {
-                // Don't block the UI if realtime is unavailable — the list still loads over HTTP and
-                // WithAutomaticReconnect keeps trying.
-                _logger.LogWarning(ex, "Notifications hub failed to connect; will keep retrying.");
-            }
-
+            // Load the current list now (HTTP) so the bell + unread count show even before the socket
+            // is up. Then connect in the background with retry — WithAutomaticReconnect only recovers a
+            // connection that connected at least once, so a failed *initial* connect (cold backend on
+            // first launch) would otherwise never retry until the app is reopened.
             await RefreshAsync();
+            _ = ConnectWithRetryAsync();
         }
         finally
         {
             _starting = false;
+        }
+    }
+
+    private async Task ConnectWithRetryAsync()
+    {
+        if (_connecting) return;
+        _connecting = true;
+        try
+        {
+            while (_connection is { State: HubConnectionState.Disconnected })
+            {
+                try
+                {
+                    await _connection.StartAsync();
+                    _logger.LogInformation("Notifications hub connected.");
+                    await RefreshAsync(); // pull anything that arrived before the socket was up
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Notifications hub connect failed; retrying in 5s.");
+                    await Task.Delay(TimeSpan.FromSeconds(5));
+                }
+            }
+        }
+        finally
+        {
+            _connecting = false;
         }
     }
 
@@ -133,25 +155,20 @@ public sealed class NotificationService : IAsyncDisposable
             await EnsureStartedAsync();
             return;
         }
+        // Always re-sync the list over HTTP (cheap, and catches anything missed while suspended)…
+        await RefreshAsync();
+        // …and if the socket is down, retry connecting in the background.
         if (_connection.State == HubConnectionState.Disconnected)
-        {
-            try
-            {
-                await _connection.StartAsync();
-                _logger.LogInformation("Notifications hub reconnected on resume.");
-                await RefreshAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Notifications hub resume-reconnect failed; will keep retrying.");
-            }
-        }
+            _ = ConnectWithRetryAsync();
     }
 
-    /// <summary>Reloads the notification list from the API (used on startup and after marking read).</summary>
+    /// <summary>Reloads the notification list from the API. A failed fetch is ignored (keeps the current
+    /// list) rather than wiping the bell — important on resume when the network may still be flapping.</summary>
     public async Task RefreshAsync()
     {
-        Notifications = await _api.GetNotificationsAsync();
+        var latest = await _api.TryGetNotificationsAsync();
+        if (latest is null) return;
+        Notifications = latest;
         NotificationsChanged?.Invoke();
     }
 

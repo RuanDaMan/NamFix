@@ -67,6 +67,15 @@ public sealed class JobsController : ApiControllerBase
         catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
     }
 
+    /// <summary>Provider privately dismisses an open job from their board (no client notification).</summary>
+    [Authorize(Roles = nameof(UserRole.ServiceProvider))]
+    [HttpPost("{id:guid}/dismiss")]
+    public async Task<ActionResult> Dismiss(Guid id)
+    {
+        try { await _jobs.DismissJobAsync(CurrentUserId, id); return NoContent(); }
+        catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
+    }
+
     [HttpGet("{id:guid}/quotes")]
     public async Task<ActionResult<List<JobResponseDto>>> Quotes(Guid id)
     {

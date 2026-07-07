@@ -28,6 +28,9 @@ public static class DependencyInjection
 
         // UI theme (dark/light), persisted in localStorage. Host-agnostic (JS interop only).
         services.AddScoped<ThemeService>();
+
+        // Tracks seen open-jobs so the provider's Job board badge shows only unseen ones.
+        services.AddScoped<JobBoardState>();
         // ConnectivityService (SignalR backend heartbeat) is registered by the host, which knows the
         // API base address — see AddNamFixSharedUi callers.
         // NamFixApiClient itself is registered by the host via AddHttpClient<NamFixApiClient>()

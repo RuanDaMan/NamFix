@@ -1,12 +1,14 @@
 @page "/post-job"
 @attribute [Authorize(Roles = "Client")]
+@implements IDisposable
 @inject NamFixApiClient Api
 @inject NavigationManager Nav
+@inject NotificationService Notifications
 
 <PageTitle>Get matched — NamFix</PageTitle>
 
 <h1>Get matched</h1>
-<p class="nf-muted">Describe the job and we'll notify nearby providers who match. They respond with quotes — you pick one.</p>
+<p class="nf-muted">Describe the job and we'll notify nearby providers who match. They respond with quotes — you pick one, and it becomes a booking.</p>
 
 <EditForm Model="_request" OnValidSubmit="SubmitAsync" class="nf-form">
     <DataAnnotationsValidator />
@@ -52,19 +54,76 @@
     </div>
 </EditForm>
 
+<section class="nf-booking-section">
+    <h2>Your open requests</h2>
+    @if (_loadingJobs)
+    {
+        <p class="nf-muted">Loading…</p>
+    }
+    else if (_openRequests.Count == 0)
+    {
+        <p class="nf-muted">No open requests. Post a job above to start gathering quotes.</p>
+    }
+    else
+    {
+        <div class="nf-booking-list">
+            @foreach (var j in _openRequests)
+            {
+                <div class="nf-booking-row" @key="j.Id">
+                    <div class="nf-booking-row-main">
+                        <strong>@j.ServiceDescription</strong>
+                        <span class="nf-muted">@(j.CategoryName ?? "Any category") · @(j.TownName ?? "Any town")</span>
+                    </div>
+                    <div class="nf-booking-row-side">
+                        <span class="nf-badge @(j.ResponseCount > 0 ? "avail-available" : "verified")">
+                            @(j.ResponseCount > 0 ? $"{j.ResponseCount} quote{(j.ResponseCount == 1 ? "" : "s")}" : "Gathering quotes")
+                        </span>
+                        <div class="nf-booking-actions">
+                            <a class="nf-cta" href="bookings/@j.Id">@(j.ResponseCount > 0 ? "View quotes" : "View")</a>
+                            <button class="nf-link-btn" @onclick="() => CancelAsync(j.Id)" disabled="@(_cancelling == j.Id)">
+                                @(_cancelling == j.Id ? "Cancelling…" : "Cancel")
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</section>
+
 @code {
     private readonly PostJobRequest _request = new() { TargetMode = JobTargetMode.Broadcast };
     private List<CategoryDto> _categories = new();
     private List<TownDto> _towns = new();
+    private List<JobRequestDto> _openRequests = new();
     private DateTime? _preferredTime;
     private bool _urgent;
     private bool _submitting;
+    private bool _loadingJobs = true;
+    private Guid? _cancelling;
 
     protected override async Task OnInitializedAsync()
     {
         _categories = await Api.GetCategoriesAsync();
         _towns = await Api.GetTownsAsync();
+        // Quotes arriving / jobs changing should refresh this list live.
+        Notifications.BookingChanged += OnChanged;
+        Notifications.NotificationsChanged += OnNotified;
+        await LoadRequestsAsync();
     }
+
+    private async Task LoadRequestsAsync()
+    {
+        _loadingJobs = true;
+        _openRequests = (await Api.GetMyBookingsAsync())
+            .Where(b => b.Status is JobStatus.Requested or JobStatus.Quoted)
+            .ToList();
+        _loadingJobs = false;
+        StateHasChanged();
+    }
+
+    private void OnChanged(Guid jobId) => _ = InvokeAsync(LoadRequestsAsync);
+    private void OnNotified() => _ = InvokeAsync(LoadRequestsAsync);
 
     private async Task SubmitAsync()
     {
@@ -78,6 +137,29 @@
         };
         var job = await Api.PostJobAsync(payload);
         _submitting = false;
-        if (job is not null) Nav.NavigateTo($"bookings/{job.Id}");
+        if (job is not null)
+        {
+            // Stay on the page and show the new request in the list; reset the form for the next one.
+            _request.ServiceDescription = string.Empty;
+            _request.CategoryId = null;
+            _request.TownId = null;
+            _preferredTime = null;
+            _urgent = false;
+            await LoadRequestsAsync();
+        }
+    }
+
+    private async Task CancelAsync(Guid jobId)
+    {
+        _cancelling = jobId;
+        await Api.CancelBookingAsync(jobId);
+        _cancelling = null;
+        await LoadRequestsAsync();
+    }
+
+    public void Dispose()
+    {
+        Notifications.BookingChanged -= OnChanged;
+        Notifications.NotificationsChanged -= OnNotified;
     }
 }

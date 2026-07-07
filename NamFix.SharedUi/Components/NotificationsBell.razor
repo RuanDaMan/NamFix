@@ -13,6 +13,8 @@
 
     @if (_open)
     {
+        @* Full-viewport catcher so a tap/click anywhere outside the panel closes it. *@
+        <div class="nf-bell-overlay" @onclick="Close"></div>
         <div class="nf-bell-panel">
             <div class="nf-bell-head">
                 <strong>Notifications</strong>
@@ -61,6 +63,8 @@
     private void OnChanged() => _ = InvokeAsync(StateHasChanged);
 
     private void Toggle() => _open = !_open;
+
+    private void Close() => _open = false;
 
     private async Task MarkAllReadAsync() => await Notifications.MarkAllReadAsync();
 
