@@ -220,6 +220,8 @@ body {
     width: 100%; padding: .6rem; border: 1px solid var(--nf-border); border-radius: var(--nf-radius); font-size: 1rem;
     background: var(--nf-card); color: var(--nf-text);
 }
+.nf-form-actions { display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; margin-top: 1.25rem; }
+.nf-pin-note { margin: .6rem 0 0; font-size: .85rem; }
 .nf-role-toggle { display: flex; gap: .5rem; }
 .nf-role { flex: 1; padding: .6rem; border: 1px solid var(--nf-border); background: var(--nf-card); color: var(--nf-text); border-radius: var(--nf-radius); cursor: pointer; }
 .nf-role.on { border-color: var(--nf-tint-border); background: var(--nf-tint); color: var(--nf-primary); font-weight: 600; }
@@ -389,6 +391,9 @@ body {
 .nf-booking-propose { margin-top: .75rem; display: flex; flex-direction: column; gap: .35rem; }
 .nf-booking-propose input[type="datetime-local"], .nf-booking-propose input[type="text"], .nf-booking-propose input:not([type]) {
     padding: .55rem; border: 1px solid var(--nf-border); border-radius: var(--nf-radius); background: var(--nf-card); color: var(--nf-text); }
+.nf-booking-review { margin-top: .75rem; padding: .75rem 1rem; background: var(--nf-tint); border: 1px solid var(--nf-tint-border); border-radius: var(--nf-radius); }
+.nf-booking-review h4 { margin: 0 0 .4rem; font-size: .95rem; }
+.nf-review-comment { margin: .4rem 0 0; font-style: italic; }
 
 /* Chat */
 .nf-chat { display: flex; flex-direction: column; gap: .5rem; max-height: 360px; overflow-y: auto; padding: .5rem 0; }

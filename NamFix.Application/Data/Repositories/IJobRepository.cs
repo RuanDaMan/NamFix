@@ -67,6 +67,10 @@ public sealed class JobRequestRepository : IJobRepository
                CAST(CASE WHEN EXISTS (SELECT 1 FROM dbo.JobRequestAttachments a
                                       WHERE a.JobRequestId = j.Id AND a.Kind = 0)
                          THEN 1 ELSE 0 END AS BIT) AS HasInvoiceFile,
+               (SELECT TOP 1 rv.Rating FROM dbo.Reviews rv
+                WHERE rv.JobRequestId = j.Id ORDER BY rv.CreatedAtUtc DESC) AS ReviewRating,
+               (SELECT TOP 1 rv.Comment FROM dbo.Reviews rv
+                WHERE rv.JobRequestId = j.Id ORDER BY rv.CreatedAtUtc DESC) AS ReviewComment,
                (SELECT COUNT(*) FROM dbo.JobRequestResponses rr
                 WHERE rr.JobRequestId = j.Id AND rr.Status IN (2, 3, 6)) AS ResponseCount
         FROM dbo.JobRequests j

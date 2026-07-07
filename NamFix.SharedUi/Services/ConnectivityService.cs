@@ -61,6 +61,12 @@ public sealed class ConnectivityService : IAsyncDisposable
         await ConnectLoopAsync();
     }
 
+    /// <summary>
+    /// Nudge an immediate reconnect attempt — e.g. the app just resumed from the background, where the
+    /// 5s retry timer may have been frozen. No-op if already connected or a connect loop is running.
+    /// </summary>
+    public Task PokeAsync() => _connection is null ? Task.CompletedTask : ConnectLoopAsync();
+
     private async Task ConnectLoopAsync()
     {
         if (_connecting) return;

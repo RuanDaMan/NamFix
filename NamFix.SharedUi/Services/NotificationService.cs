@@ -80,8 +80,17 @@ public sealed class NotificationService : IAsyncDisposable
                     options.AccessTokenProvider = async () => await _tokens.GetAccessTokenAsync();
                     _configureConnection?.Invoke(options);
                 })
-                .WithAutomaticReconnect()
+                // Retry forever. The default policy gives up after ~1 min, which breaks live updates
+                // when a mobile app is backgrounded longer than that and then resumed.
+                .WithAutomaticReconnect(new InfiniteRetryPolicy())
                 .Build();
+
+            // Reload after an auto-reconnect so anything missed while offline is pulled in over HTTP.
+            _connection.Reconnected += async _ =>
+            {
+                _logger.LogInformation("Notifications hub reconnected.");
+                await RefreshAsync();
+            };
 
             _connection.On<NotificationDto>("Notification", n =>
             {
@@ -110,6 +119,32 @@ public sealed class NotificationService : IAsyncDisposable
         finally
         {
             _starting = false;
+        }
+    }
+
+    /// <summary>
+    /// Kick an immediate reconnect if the hub is down (e.g. the app just resumed from the background,
+    /// where SignalR's own keepalive may not have noticed the dead socket yet). Safe to call anytime.
+    /// </summary>
+    public async Task ReconnectIfNeededAsync()
+    {
+        if (_connection is null)
+        {
+            await EnsureStartedAsync();
+            return;
+        }
+        if (_connection.State == HubConnectionState.Disconnected)
+        {
+            try
+            {
+                await _connection.StartAsync();
+                _logger.LogInformation("Notifications hub reconnected on resume.");
+                await RefreshAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Notifications hub resume-reconnect failed; will keep retrying.");
+            }
         }
     }
 
@@ -156,5 +191,15 @@ public sealed class NotificationService : IAsyncDisposable
     {
         if (_connection is not null)
             await _connection.DisposeAsync();
+    }
+}
+
+/// <summary>Reconnect policy that never gives up: exponential backoff capped at 30s.</summary>
+internal sealed class InfiniteRetryPolicy : IRetryPolicy
+{
+    public TimeSpan? NextRetryDelay(RetryContext retryContext)
+    {
+        var seconds = Math.Min(30, Math.Pow(2, Math.Min(retryContext.PreviousRetryCount, 5)));
+        return TimeSpan.FromSeconds(seconds);
     }
 }

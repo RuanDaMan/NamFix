@@ -2,10 +2,12 @@
 @implements IDisposable
 @using Microsoft.Extensions.Logging
 @inject ConnectivityService Connectivity
+@inject NotificationService Notifications
 @inject ApiErrorNotifier Errors
 @inject NavigationManager Nav
 @inject ILogger<MainLayout> Logger
 @inject AppPlatformInfo Platform
+@inject IJSRuntime JS
 
 <div class="nf-app" data-platform="@Platform.Slug">
     <NavMenu />
@@ -57,6 +59,7 @@
 @code {
     private readonly List<Toast> _toasts = new();
     private LoggingErrorBoundary? _errorBoundary;
+    private DotNetObjectReference<MainLayout>? _selfRef;
 
     protected override void OnInitialized()
     {
@@ -80,6 +83,28 @@
         {
             Logger.LogError(ex, "Connectivity startup faulted unexpectedly.");
         }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            _selfRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("namfix.onResume", _selfRef);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to register the app-resume reconnect hook.");
+        }
+    }
+
+    /// <summary>Called from JS when the app returns to the foreground / regains network — reconnect hubs now.</summary>
+    [JSInvokable]
+    public async Task OnAppResumed()
+    {
+        await Connectivity.PokeAsync();
+        await Notifications.ReconnectIfNeededAsync();
     }
 
     private void Recover() => _errorBoundary?.Recover();
@@ -113,6 +138,7 @@
         Errors.ErrorReported -= OnErrorReported;
         Connectivity.StateChanged -= OnConnectivityChangedAsync;
         Nav.LocationChanged -= OnLocationChanged;
+        _selfRef?.Dispose();
     }
 
     private sealed record Toast(string Message)

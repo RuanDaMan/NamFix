@@ -1,6 +1,7 @@
 @page "/provider/dashboard"
 @attribute [Authorize(Roles = "ServiceProvider")]
 @inject NamFixApiClient Api
+@inject IGeolocationService Geo
 
 <PageTitle>My listing — NamFix</PageTitle>
 
@@ -81,19 +82,34 @@ else
         <label>Years of experience</label>
         <InputNumber @bind-Value="_model.YearsExperience" placeholder="e.g. 8" />
 
-        <label>Pin your location (tap the map)</label>
+        <label>Pin your location</label>
+        <div class="nf-booking-actions">
+            <button type="button" class="nf-link-btn" @onclick="UseMyLocationAsync" disabled="@_locating">
+                @if (_locating)
+                {
+                    <span class="nf-inline-spinner"></span> <span>Locating…</span>
+                }
+                else
+                {
+                    <span>📍 Use my current location</span>
+                }
+            </button>
+            <span class="nf-muted">or tap the map</span>
+        </div>
         <MapView Center="PinCenter" Zoom="@(_model.Latitude is null ? 6 : 14)" PinMode="true"
                  OnPinned="OnPinned" Height="300px" Markers="PinMarkers" />
         @if (_model.Latitude is not null)
         {
-            <small class="nf-muted">Pinned at @_model.Latitude?.ToString("0.0000"), @_model.Longitude?.ToString("0.0000")</small>
+            <p class="nf-muted nf-pin-note">Pinned at @_model.Latitude?.ToString("0.0000"), @_model.Longitude?.ToString("0.0000")</p>
         }
 
-        <button class="nf-cta" type="submit" disabled="@_busy">@(_busy ? "Saving…" : "Save listing")</button>
-        @if (_saved)
-        {
-            <span class="nf-success">Saved ✓</span>
-        }
+        <div class="nf-form-actions">
+            <button class="nf-cta" type="submit" disabled="@_busy">@(_busy ? "Saving…" : "Save listing")</button>
+            @if (_saved)
+            {
+                <span class="nf-success">Saved ✓</span>
+            }
+        </div>
     </EditForm>
 
     <section class="nf-booking-section">
@@ -126,7 +142,7 @@ else
     private ProviderEarningsDto? _earnings;
     private ProviderStatus? _status;
     private string _tagsCsv = "";
-    private bool _loading = true, _busy, _saved;
+    private bool _loading = true, _busy, _saved, _locating;
 
     protected override async Task OnInitializedAsync()
     {
@@ -168,6 +184,23 @@ else
     {
         _model.Latitude = point.Latitude;
         _model.Longitude = point.Longitude;
+    }
+
+    private async Task UseMyLocationAsync()
+    {
+        _locating = true;
+        try
+        {
+            if (await Geo.GetCurrentLocationAsync() is { } p)
+            {
+                _model.Latitude = p.Latitude;
+                _model.Longitude = p.Longitude;
+            }
+        }
+        finally
+        {
+            _locating = false;
+        }
     }
 
     private async Task SaveAsync()

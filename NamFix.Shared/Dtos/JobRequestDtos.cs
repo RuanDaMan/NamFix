@@ -127,6 +127,12 @@ public record JobRequestDto
     public bool WasLateCancellation { get; init; }
     public Guid? NoShowByUserId { get; init; }
 
+    /// <summary>The client's review rating (1–5) once left, so both parties can see it on the booking.</summary>
+    public int? ReviewRating { get; init; }
+
+    /// <summary>The client's review comment once left (null when none or no text was given).</summary>
+    public string? ReviewComment { get; init; }
+
     /// <summary>Number of provider responses (quotes/interest) received — for the client's list badge.</summary>
     public int ResponseCount { get; init; }
 

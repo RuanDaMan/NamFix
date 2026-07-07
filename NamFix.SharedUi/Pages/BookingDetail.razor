@@ -138,7 +138,7 @@ else
             </div>
         </section>
 
-        @* ---- Location (client shares where the job is) ---- *@
+        @* ---- Location: the client pins the job spot on the map; it's shared automatically. ---- *@
         <section class="nf-booking-section">
             <h3>Location</h3>
             @if (!string.IsNullOrWhiteSpace(_booking.LocationText))
@@ -153,9 +153,9 @@ else
             @if (IsClient && IsActive)
             {
                 <div class="nf-booking-propose">
-                    <input placeholder="Address or directions" @bind="_locationText" />
+                    <p class="nf-muted">Tap the map to drop a pin — your location is shared with the tradesperson automatically.</p>
                     <div class="nf-booking-actions">
-                        <button class="nf-link-btn" @onclick="UseMyLocationAsync" disabled="@_locating">
+                        <button class="nf-link-btn" @onclick="UseMyLocationAsync" disabled="@(_locating || _sharing)">
                             @if (_locating)
                             {
                                 <span class="nf-inline-spinner"></span> <span>Locating…</span>
@@ -165,22 +165,19 @@ else
                                 <span>📍 Use my current location</span>
                             }
                         </button>
-                        <button class="nf-link-btn" @onclick="() => _showMap = !_showMap">
-                            @(_showMap ? "Hide map" : "📌 Pin on map")
-                        </button>
-                        <button class="nf-cta" @onclick="SaveLocationAsync" disabled="@string.IsNullOrWhiteSpace(_locationText)">Share location</button>
+                        @if (_sharing)
+                        {
+                            <span class="nf-loading"><span class="nf-inline-spinner"></span> Sharing…</span>
+                        }
+                        else if (_locShared)
+                        {
+                            <span class="nf-success">Shared ✓</span>
+                        }
                     </div>
-                    @if (_locLat is not null)
-                    {
-                        <p class="nf-muted">Pinned: @_locLat?.ToString("0.0000"), @_locLng?.ToString("0.0000")</p>
-                    }
-                    @if (_showMap)
-                    {
-                        <p class="nf-muted">Tap the map to move the pin, or use the buttons above.</p>
-                        <MapView PinMode="true" OnPinned="OnMapPinned"
-                                 Center="PinCenter" Zoom="14" Height="260px"
-                                 Markers="PinMarkers" />
-                    }
+                    <input placeholder="Address or directions (optional)" @bind="_locationText" @bind:after="ShareLocationSoon" />
+                    <MapView PinMode="true" OnPinned="OnMapPinned"
+                             Center="PinCenter" Zoom="14" Height="260px"
+                             Markers="PinMarkers" />
                 </div>
             }
             else if (_booking.LocationLat is not null && _booking.LocationLng is not null)
@@ -273,9 +270,18 @@ else
                     </div>
                 </div>
             }
-            else if (AlreadyReviewed)
+
+            @* The left review is visible to both parties — the tradesperson sees the client's rating & message. *@
+            @if (_booking.ReviewRating is { } reviewRating)
             {
-                <p class="nf-success">Thanks for your review ⭐</p>
+                <div class="nf-booking-review">
+                    <h4>@(IsProvider ? $"Review from {_booking.ClientName}" : "Your review")</h4>
+                    <RatingStars Value="reviewRating" Count="0" />
+                    @if (!string.IsNullOrWhiteSpace(_booking.ReviewComment))
+                    {
+                        <p class="nf-review-comment">“@_booking.ReviewComment”</p>
+                    }
+                </div>
             }
         </section>
 
@@ -319,6 +325,9 @@ else
     private double? _locLat;
     private double? _locLng;
     private bool _locating;
+    private bool _sharing;
+    private bool _locShared;
+    private CancellationTokenSource? _shareCts;
     private bool _showMap;
     private GeoPoint? _mapCenter;
     private decimal _invoiceAmount;
@@ -336,7 +345,6 @@ else
     private bool CanFlagNoShow => _booking is not null &&
         _booking.Status is JobStatus.Scheduled or JobStatus.InProgress &&
         _booking.ConfirmedStartUtc is { } start && DateTime.UtcNow >= start;
-    private bool AlreadyReviewed => _booking is not null && _booking.Status == JobStatus.Reviewed;
     private bool ShowJobDetails => _booking is not null &&
         _booking.Status is not (JobStatus.Requested or JobStatus.Quoted);
     private bool MyTurnToApprove => _booking is not null &&
@@ -423,8 +431,8 @@ else
             if (point is { } p)
             {
                 ApplyPin(p);
-                _mapCenter = p;   // pan the map to the located point
-                _showMap = true;  // reveal the map so the pin is visible
+                _mapCenter = p;         // pan the map to the located point
+                await ShareNowAsync();  // an explicit action shares immediately
             }
         }
         finally
@@ -440,14 +448,51 @@ else
     {
         ApplyPin(p);
         await InvokeAsync(StateHasChanged);
+        ScheduleShare();  // debounced so rapid taps while positioning collapse into one share
     }
 
     private void ApplyPin(GeoPoint p)
     {
         _locLat = p.Latitude;
         _locLng = p.Longitude;
-        if (string.IsNullOrWhiteSpace(_locationText))
-            _locationText = $"{p.Latitude:0.0000}, {p.Longitude:0.0000}";
+    }
+
+    /// <summary>Re-share after the (optional) address text is edited, once a pin exists.</summary>
+    private void ShareLocationSoon() => ScheduleShare();
+
+    /// <summary>Debounce an auto-share; the last pin/edit within the window wins.</summary>
+    private void ScheduleShare()
+    {
+        if (_locLat is null) return;
+        _shareCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _shareCts = cts;
+        _ = ShareAfterDelayAsync(cts.Token);
+    }
+
+    private async Task ShareAfterDelayAsync(CancellationToken ct)
+    {
+        try { await Task.Delay(700, ct); }
+        catch (TaskCanceledException) { return; }
+        if (!ct.IsCancellationRequested)
+            await InvokeAsync(ShareNowAsync);
+    }
+
+    private async Task ShareNowAsync()
+    {
+        if (_locLat is null || _locLng is null || _sharing) return;
+        _sharing = true;
+        _locShared = false;
+        StateHasChanged();
+        try
+        {
+            _locShared = await SaveLocationAsync();
+        }
+        finally
+        {
+            _sharing = false;
+            StateHasChanged();
+        }
     }
 
     /// <summary>Stable center: located point → already-shared location → Windhoek. Not tied to each tap.</summary>
@@ -465,15 +510,20 @@ else
                 ? new[] { new MapMarker(new GeoPoint(blat, blng), "Job location") }
                 : Array.Empty<MapMarker>();
 
-    private async Task SaveLocationAsync()
+    private async Task<bool> SaveLocationAsync()
     {
-        if (string.IsNullOrWhiteSpace(_locationText)) return;
-        Apply(await Api.SetBookingLocationAsync(Id, new SetJobLocationRequest
+        if (_locLat is null || _locLng is null) return false;
+        // The client sees no raw coordinates — send a readable label (typed directions, else a
+        // friendly default) and let the map pin carry the exact spot.
+        var text = string.IsNullOrWhiteSpace(_locationText) ? "Pinned on map" : _locationText!.Trim();
+        var updated = await Api.SetBookingLocationAsync(Id, new SetJobLocationRequest
         {
-            LocationText = _locationText!,
+            LocationText = text,
             Lat = _locLat,
             Lng = _locLng
-        }));
+        });
+        Apply(updated);
+        return updated is not null;
     }
 
     private async Task CompleteAsync()
@@ -571,5 +621,7 @@ else
     {
         Notifications.BookingChanged -= OnBookingChanged;
         Notifications.MessagePosted -= OnMessagePosted;
+        _shareCts?.Cancel();
+        _shareCts?.Dispose();
     }
 }
