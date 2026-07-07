@@ -72,6 +72,10 @@ public sealed class NotificationService : IAsyncDisposable
     public async Task EnsureStartedAsync()
     {
         if (_connection is not null || _starting) return;
+        // Nothing to subscribe to while logged out. Guard here so an anonymous cold start (where a
+        // window focus/visibility event triggers ReconnectIfNeededAsync) doesn't call the auth-only
+        // notifications endpoint and surface a misleading "your session has expired" toast.
+        if (string.IsNullOrWhiteSpace(await _tokens.GetAccessTokenAsync())) return;
         _starting = true;
         try
         {
@@ -166,6 +170,9 @@ public sealed class NotificationService : IAsyncDisposable
     /// list) rather than wiping the bell — important on resume when the network may still be flapping.</summary>
     public async Task RefreshAsync()
     {
+        // Skip the auth-only fetch when logged out (e.g. a resume/focus event on the login screen) so
+        // it can't 401 into a "session expired" toast for a user who was never signed in.
+        if (string.IsNullOrWhiteSpace(await _tokens.GetAccessTokenAsync())) return;
         var latest = await _api.TryGetNotificationsAsync();
         if (latest is null) return;
         Notifications = latest;

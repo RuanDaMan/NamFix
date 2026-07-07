@@ -445,6 +445,15 @@ body {
 #blazor-error-ui .reload { color: #fff; text-decoration: underline; }
 #blazor-error-ui .dismiss { cursor: pointer; position: absolute; right: .75rem; top: .5rem; }
 
+/* Blazor WASM boot indicator (the #app splash in index.html). This app loads namfix.css instead of
+   the template's app.css, so without these rules the two SVG <circle>s render with the default
+   fill:black — a big black dot that flashes before the runtime loads. Keep them here. */
+.loading-progress { position: absolute; display: block; width: 8rem; height: 8rem; inset: 20vh 0 auto 0; margin: 0 auto; }
+.loading-progress circle { fill: none; stroke: var(--nf-border, #e0e0e0); stroke-width: 0.6rem; transform-origin: 50% 50%; transform: rotate(-90deg); }
+.loading-progress circle:last-child { stroke: var(--nf-accent, #1b6ec2); stroke-dasharray: calc(3.141 * var(--blazor-load-percentage, 0%) * 0.8), 500%; transition: stroke-dasharray 0.05s ease-in-out; }
+.loading-progress-text { position: absolute; text-align: center; font-weight: bold; inset: calc(20vh + 3.25rem) 0 auto 0.2rem; color: var(--nf-text, inherit); }
+.loading-progress-text:after { content: var(--blazor-load-percentage-text, "Loading"); }
+
 /* ---- Support / helpdesk + admin user management ---- */
 
 /* Shared form controls used by the support + admin pages */
