@@ -14,5 +14,4 @@ certs/
 
 # Local environment config (kept out of git; each machine keeps its own copy)
 NamFix.Api/appsettings.json
-NamFix.Web/wwwroot/appsettings.json
 NamFix.Mobile/MobileConfig.Local.cs
